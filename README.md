@@ -126,6 +126,8 @@ curl -s https://<域名>/healthz
 <img width="33%" height="7454" alt="143796a9f55255fc6f596b9b0ca9124b" src="https://github.com/user-attachments/assets/7d701b32-6cbd-4219-a322-0ebbba357cb9" />
 <img width="33%" height="7454" alt="5b65a2b722e602695b3d57f507217290" src="https://github.com/user-attachments/assets/b756eccf-3f21-46d0-933d-10b293ae34cd" />
 
+## 千二费率的微信商户
+可以去https://www.51skill.com/portal/api/wechat-sub-merchant-managed 调用接口申请，几分钟即可搞定。
 
 ## 开发铁律：上游调用与图标
 
