@@ -55,4 +55,8 @@ if (fs.existsSync(tklLocal)) {
   await app.hosting.uploadFiles({ localPath: tklLocal, cloudPath: 'tkl.html' });
 }
 console.log('[hosting] 上传完成');
+// 根路径 index.html = portal 首页（/ 直接落 portal，与 /portal/ 同源同步；历史上手动传过旧版导致根路径内容漂移）
+const portalIndex = path.join(repoRoot, 'apps', 'portal', 'index.html');
+console.log('[hosting] 上传 portal/index.html → /index.html（根路径）');
+await app.hosting.uploadFiles({ localPath: portalIndex, cloudPath: 'index.html' });
 console.log(`[hosting] 验收地址：https://${infos[0].CdnDomain}/admin/ 与 /h5/ 与 /tkl.html`);
