@@ -35,6 +35,7 @@ console.log('[hosting] CdnDomain =', infos[0].CdnDomain, '| Status =', infos[0].
 const targets = [
   { local: path.join(repoRoot, 'apps', 'admin', 'dist'), cloud: 'admin' },
   { local: path.join(repoRoot, 'apps', 'h5', 'dist', 'build', 'h5'), cloud: 'h5' },
+  { local: path.join(repoRoot, 'apps', 'portal'), cloud: 'portal' },
 ];
 for (const t of targets) {
   console.log(`[hosting] 上传 ${path.relative(repoRoot, t.local)} → /${t.cloud}/`);
