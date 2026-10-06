@@ -1,0 +1,23 @@
+<!-- mini-01 设计稿 1:1（紧凑版）：图标+文字包进圆角方块（激活=玫红底白图标白字），独立 FAB 圆钮 -->
+<view class="tab-wrap {{style === 'glass' ? 'glass' : 'classic'}}" style="{{themeStyle}}">
+  <view class="tab-bar">
+    <view
+      wx:for="{{items}}"
+      wx:key="key"
+      class="tab-item {{index === selected ? 'active' : ''}}"
+      data-idx="{{index}}"
+      bindtap="onTap"
+    >
+      <view class="tab-pill">
+        <image wx:if="{{index === selected && (item.icon_active || item._icA)}}" class="tab-icon" src="{{item.icon_active || item._icA}}" mode="aspectFit" />
+        <image wx:elif="{{item.icon || item._ic}}" class="tab-icon" src="{{item.icon || item._ic}}" mode="aspectFit" />
+        <text wx:else class="tab-dot">{{item.name[0]}}</text>
+        <text class="tab-name">{{item.name}}</text>
+      </view>
+    </view>
+  </view>
+  <view wx:if="{{fab.enabled}}" class="fab-btn" bindtap="onTapFab">
+    <image wx:if="{{fab.icon === 'sparkle'}}" class="fab-ic" src="/custom-tab-bar/icons/sparkle.png" mode="aspectFit" />
+    <text wx:else class="fab-ic-txt">🔍</text>
+  </view>
+</view>

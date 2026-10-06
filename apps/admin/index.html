@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- ⛔ 2026-10-05：不配 favicon 每次进后台都有一条 GET /favicon.ico 404 刷 console。
+         用内联 SVG data-URI（玫红 F，跟品牌 VI 一致），零额外请求、零静态资源。 -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23e91e63'/%3E%3Ctext x='32' y='45' font-family='Arial,sans-serif' font-size='38' font-weight='bold' fill='%23fff7ec' text-anchor='middle'%3EF%3C/text%3E%3C/svg%3E" />
+    <title>FYT360 管理后台</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

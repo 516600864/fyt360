@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FYT360 — 吃喝玩乐购 一站全变现</title>
+<meta name="description" content="FYT360 是一站式全域流量变现 SaaS：聚合吃/喝/玩/乐/购 CPS 供给，多开小程序 + H5 分发，元宝结算、三级分销、可视化 DIY 装修，开源可自部署。" />
+<link rel="icon" href="assets/logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet" />
+<style>
+/* ============ FYT360 Design Token（VI 规范 §7.1 逐字落地） ============ */
+:root{
+  --fyt-color-primary:#E8336D; --fyt-color-primary-hover:#EC4D80; --fyt-color-primary-active:#D12E62;
+  --fyt-color-primary-disabled:#F3A0BC; --fyt-color-primary-light:#FFD9E6;
+  --fyt-color-secondary:#FFAA1D; --fyt-color-secondary-hover:#FFB542; --fyt-color-secondary-active:#E6991A;
+  --fyt-color-surface:#FFF6E9; --fyt-color-surface-alt:#FFFFFF;
+  --fyt-color-dark:#A31245; --fyt-color-dark-hover:#B54870; --fyt-color-dark-active:#8F0F3C;
+  --fyt-color-light:#FFD9E6;
+  --fyt-text-primary:#A31245; --fyt-text-secondary:#8A6B75; --fyt-text-tertiary:#B59AA1;
+  --fyt-text-inverse:#FFFFFF; --fyt-text-on-primary:#FFFFFF; --fyt-text-on-secondary:#A31245;
+  --fyt-text-link:#E8336D; --fyt-text-price:#E8336D;
+  --fyt-color-success:#2FBF71; --fyt-color-success-bg:#E3F8EE;
+  --fyt-color-warning:#FFAA1D; --fyt-color-warning-bg:#FFF1D6;
+  --fyt-color-error:#E23A3A; --fyt-color-error-bg:#FDE7E7;
+  --fyt-color-info:#3B82F6; --fyt-color-info-bg:#E7F0FE;
+  --fyt-color-mask:rgba(163,18,69,.45);
+  --fyt-border-strong:#A31245; --fyt-border-default:#F0DFC8; --fyt-border-light:#FBEFDD; --fyt-border-focus:#E8336D;
+  --fyt-radius-sm:8px; --fyt-radius-md:12px; --fyt-radius-lg:20px; --fyt-radius-xl:28px; --fyt-radius-full:999px;
+  --fyt-border-thin:1.5px; --fyt-border-thick:3px; --fyt-border-thickest:4px;
+  --fyt-shadow-btn:0 3px 0 0 #A31245;
+  --fyt-shadow-card:0 3px 0 0 #A31245,0 8px 24px rgba(163,18,69,.10);
+  --fyt-shadow-pop:0 6px 0 0 #A31245,0 16px 40px rgba(163,18,69,.18);
+  --fyt-shadow-soft:0 4px 16px rgba(163,18,69,.08);
+  --fyt-shadow-focus:0 0 0 3px rgba(232,51,109,.25);
+  --fyt-space-1:4px; --fyt-space-2:8px; --fyt-space-3:12px; --fyt-space-4:16px;
+  --fyt-space-6:24px; --fyt-space-8:32px; --fyt-space-12:48px; --fyt-space-16:64px;
+  --fyt-font-display:48px; --fyt-font-display-lh:56px;
+  --fyt-font-h1:32px; --fyt-font-h1-lh:40px;
+  --fyt-font-h2:24px; --fyt-font-h2-lh:32px;
+  --fyt-font-h3:18px; --fyt-font-h3-lh:26px;
+  --fyt-font-body:16px; --fyt-font-body-lh:24px;
+  --fyt-font-caption:13px; --fyt-font-caption-lh:20px;
+  --fyt-font-mini:11px; --fyt-font-mini-lh:16px;
+  --fyt-weight-black:900; --fyt-weight-bold:700; --fyt-weight-medium:500; --fyt-weight-regular:400;
+  --fyt-duration-fast:120ms; --fyt-duration-base:240ms; --fyt-duration-slow:360ms;
+  --fyt-ease-out:cubic-bezier(.22,.61,.36,1);
+  --fyt-ease-spring:cubic-bezier(.34,1.56,.64,1);
+  --fyt-ease-bounce:cubic-bezier(.68,-.55,.265,1.55);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--fyt-color-surface); color:var(--fyt-text-primary);
+  font-family:"Baloo 2","ZCOOL KuaiLe","PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:var(--fyt-font-body); line-height:var(--fyt-font-body-lh);
+  -webkit-font-smoothing:antialiased; overflow-x:hidden;
+}
+::selection{background:var(--fyt-color-primary);color:#fff}
+img{display:block;max-width:100%}
+a{color:var(--fyt-text-link);text-decoration:none}
+.wrap{max-width:1280px;margin:0 auto;padding:0 var(--fyt-space-6)}
+
+/* ============ 按钮（规范 §3.1） ============ */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  border:var(--fyt-border-thick) solid var(--fyt-border-strong);
+  border-radius:var(--fyt-radius-md); box-shadow:var(--fyt-shadow-btn);
+  font-weight:var(--fyt-weight-bold); font-family:inherit; cursor:pointer;
+  transition:all var(--fyt-duration-fast) var(--fyt-ease-out);
+  height:52px;padding:0 28px;border-radius:var(--fyt-radius-full);font-size:17px;
+}
+.btn:active{transform:translateY(3px);box-shadow:none}
+.btn-primary{background:var(--fyt-color-primary);color:var(--fyt-text-on-primary)}
+.btn-primary:hover{background:var(--fyt-color-primary-hover)}
+.btn-plain{background:var(--fyt-color-surface-alt);color:var(--fyt-color-dark)}
+.btn-plain:hover{background:var(--fyt-color-primary-light)}
+.btn-sm{height:40px;padding:0 18px;font-size:14px;border-radius:var(--fyt-radius-md)}
+
+/* ============ 导航（规范 §3.5 顶部导航） ============ */
+.nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;height:64px;
+  background:rgba(255,246,233,.88);backdrop-filter:blur(12px);
+  border-bottom:var(--fyt-border-thin) solid var(--fyt-border-default);
+  transition:box-shadow var(--fyt-duration-base) var(--fyt-ease-out);
+}
+.nav.scrolled{box-shadow:var(--fyt-shadow-soft)}
+.nav-inner{max-width:1280px;margin:0 auto;height:64px;display:flex;align-items:center;gap:32px;padding:0 var(--fyt-space-6)}
+.nav-logo{display:flex;align-items:center;gap:10px}
+.nav-logo img{height:44px;width:44px;object-fit:cover;object-position:50% 32%;border-radius:10px}
+.nav-logo b{font-size:20px;font-weight:var(--fyt-weight-black);color:var(--fyt-color-dark);letter-spacing:.5px}
+.nav-links{display:flex;gap:28px;flex:1;justify-content:center}
+.nav-links a{font-size:15px;font-weight:var(--fyt-weight-medium);color:var(--fyt-text-secondary);position:relative;padding:6px 0;transition:color var(--fyt-duration-fast)}
+.nav-links a:hover{color:var(--fyt-color-dark)}
+.nav-links a.active{color:var(--fyt-color-dark)}
+.nav-links a.active::after{content:"";position:absolute;left:50%;transform:translateX(-50%);bottom:-2px;width:24px;height:3px;border-radius:3px;background:var(--fyt-color-primary)}
+.nav-cta{display:flex;align-items:center;gap:12px}
+.nav-github{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:var(--fyt-weight-medium);color:var(--fyt-text-secondary)}
+.nav-github:hover{color:var(--fyt-color-dark)}
+.nav-github svg{width:18px;height:18px;fill:currentColor}
+
+/* ============ Hero 轮播（对照 Ardot txd-carousel-banner） ============ */
+.hero{position:relative;min-height:92vh;display:flex;align-items:center;overflow:hidden;padding-top:64px}
+.hero-bg{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.hero-bg .blob{position:absolute;border-radius:50%;filter:blur(0)}
+.hero-bg .blob-1{width:520px;height:520px;background:var(--fyt-color-primary-light);top:-160px;right:-120px;opacity:.7;animation:blobFloat 9s ease-in-out infinite}
+.hero-bg .blob-2{width:380px;height:380px;background:#FFF1D6;bottom:-120px;left:-100px;opacity:.9;animation:blobFloat 11s ease-in-out infinite reverse}
+.hero-bg .spark{position:absolute;animation:sparkTwinkle 3.2s ease-in-out infinite}
+.hero-bg .spark svg{width:100%;height:100%}
+@keyframes blobFloat{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-24px,20px) scale(1.05)}}
+@keyframes sparkTwinkle{0%,100%{transform:scale(1) rotate(0deg);opacity:.9}50%{transform:scale(1.25) rotate(18deg);opacity:.55}}
+.hero-inner{position:relative;z-index:1;display:grid;grid-template-columns:1.05fr .95fr;gap:48px;align-items:center;width:100%}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 14px;
+  background:var(--fyt-color-warning);color:var(--fyt-text-on-secondary);
+  border:var(--fyt-border-thick) solid var(--fyt-border-strong);border-radius:var(--fyt-radius-full);
+  font-size:13px;font-weight:var(--fyt-weight-bold);box-shadow:var(--fyt-shadow-btn);
+}
+.hero-badge .dot{width:8px;height:8px;border-radius:50%;background:var(--fyt-color-dark);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(.6);opacity:.5}}
+.hero-title{
+  font-size:clamp(44px,6.4vw,76px);line-height:1.14;font-weight:var(--fyt-weight-black);
+  color:var(--fyt-color-dark);margin:20px 0 8px;letter-spacing:1px;
+}
+.hero-title .stick{
+  display:inline-block;background:var(--fyt-color-primary);color:#fff;
+  border:var(--fyt-border-thickest) solid var(--fyt-border-strong);border-radius:18px;
+  padding:2px 16px;box-shadow:var(--fyt-shadow-btn);transform:rotate(-2deg);
+}
+.hero-title .stick-gold{background:var(--fyt-color-secondary);color:var(--fyt-text-on-secondary);transform:rotate(1.5deg)}
+.hero-sub{font-size:18px;line-height:30px;color:var(--fyt-text-secondary);max-width:520px;margin-top:16px}
+.hero-sub b{color:var(--fyt-color-dark)}
+.hero-btns{display:flex;gap:16px;margin-top:32px;flex-wrap:wrap}
+.hero-metrics{display:flex;gap:36px;margin-top:44px;flex-wrap:wrap}
+.hero-metrics .m b{font-size:30px;font-weight:var(--fyt-weight-black);color:var(--fyt-color-primary);font-family:"Baloo 2",sans-serif}
+.hero-metrics .m span{display:block;font-size:13px;color:var(--fyt-text-secondary);margin-top:2px}
+/* Hero 右侧主视觉：贴纸手机 */
+.hero-visual{position:relative;display:flex;justify-content:center}
+.phone{
+  width:300px;height:600px;background:var(--fyt-color-surface-alt);
+  border:var(--fyt-border-thick) solid var(--fyt-border-strong);border-radius:40px;
+  box-shadow:var(--fyt-shadow-pop);padding:14px;position:relative;
+  animation:phoneBob 6s ease-in-out infinite;transform:rotate(2deg);
+}
+@keyframes phoneBob{0%,100%{transform:rotate(2deg) translateY(0)}50%{transform:rotate(1.2deg) translateY(-14px)}}
+.phone-screen{height:100%;border-radius:28px;background:var(--fyt-color-surface);overflow:hidden;border:var(--fyt-border-thin) solid var(--fyt-border-default);display:flex;flex-direction:column}
+.phone-status{display:flex;justify-content:space-between;padding:10px 14px 4px;font-size:11px;font-weight:var(--fyt-weight-bold);color:var(--fyt-color-dark)}
+.phone-head{padding:10px 14px;display:flex;align-items:center;justify-content:space-between}
+.phone-head .hi{font-size:14px;font-weight:var(--fyt-weight-black);color:var(--fyt-color-dark)}
+.phone-head .avatar{width:30px;height:30px;border-radius:50%;background:var(--fyt-color-primary-light);border:2px solid var(--fyt-border-strong);display:flex;align-items:center;justify-content:center;font-size:13px}
+.phone-banner{margin:4px 12px 10px;background:linear-gradient(120deg,var(--fyt-color-primary),var(--fyt-color-secondary));border:2px solid var(--fyt-border-strong);border-radius:14px;padding:10px 12px;color:#fff}
+.phone-banner b{font-size:12px;display:block}
+.phone-banner span{font-size:10px;opacity:.92}
+.phone-cats{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:0 12px 10px}
+.phone-cats .c{display:flex;flex-direction:column;align-items:center;gap:4px}
+.phone-cats .ic{width:34px;height:34px;border-radius:10px;background:var(--fyt-color-surface-alt);border:2px solid var(--fyt-border-strong);display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 2px 0 0 var(--fyt-border-strong)}
+.phone-cats .t{font-size:10px;color:var(--fyt-text-secondary);font-weight:var(--fyt-weight-medium)}
+.phone-goods{flex:1;background:var(--fyt-color-surface-alt);border-top:var(--fyt-border-thin) solid var(--fyt-border-default);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.phone-goods .g{display:flex;gap:8px;align-items:center;background:var(--fyt-color-surface);border:1.5px solid var(--fyt-border-default);border-radius:12px;padding:7px}
+.phone-goods .thumb{width:36px;height:36px;border-radius:9px;border:1.5px solid var(--fyt-border-strong);display:flex;align-items:center;justify-content:center;font-size:16px;background:#fff}
+.phone-goods .gi b{font-size:11px;color:var(--fyt-color-dark);display:block}
+.phone-goods .gi span{font-size:10px;color:var(--fyt-text-price);font-weight:var(--fyt-weight-bold)}
+.phone-goods .go{margin-left:auto;font-size:9px;background:var(--fyt-color-warning);border:1.5px solid var(--fyt-border-strong);border-radius:999px;padding:2px 7px;font-weight:var(--fyt-weight-bold);color:var(--fyt-text-on-secondary)}
+/* 漂浮贴纸 */
+.float-sticker{
+  position:absolute;display:flex;align-items:center;gap:8px;
+  background:var(--fyt-color-surface-alt);border:var(--fyt-border-thick) solid var(--fyt-border-strong);
+  border-radius:999px;padding:10px 16px;box-shadow:var(--fyt-shadow-card);
+  font-weight:var(--fyt-weight-bold);font-size:14px;color:var(--fyt-color-dark);z-index:2;
+}
+.float-sticker .em{font-size:20px}
+.fs-1{top:12%;left:-4%;animation:stickerFloat 5s ease-in-out infinite}
+.fs-2{bottom:20%;right:-8%;animation:stickerFloat 6s ease-in-out .8s infinite}
+.fs-3{bottom:-2%;left:6%;animation:stickerFloat 5.5s ease-in-out .4s infinite}
+@keyframes stickerFloat{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-12px) rotate(2deg)}}
+.fs-ingot{background:var(--fyt-color-warning);color:var(--fyt-text-on-secondary)}
+
+/* ============ 通用 Section（对照 Ardot interface-section / swiper-section） ============ */
+section.block{padding:110px 0}
+.sec-head{text-align:center;max-width:820px;margin:0 auto 56px}
+.sec-eyebrow{
+  display:inline-flex;align-items:center;height:30px;padding:0 16px;
+  background:var(--fyt-color-primary-light);color:var(--fyt-color-dark);
+  border:var(--fyt-border-thin) solid var(--fyt-color-primary);border-radius:var(--fyt-radius-full);
+  font-size:13px;font-weight:var(--fyt-weight-bold);letter-spacing:2px;
+}
+.sec-title{font-size:clamp(30px,4vw,44px);font-weight:var(--fyt-weight-black);color:var(--fyt-color-dark);line-height:1.3;margin-top:18px;letter-spacing:1px}
+.sec-title .hl{color:var(--fyt-color-primary)}
+.sec-title .stick{display:inline-block;background:var(--fyt-color-primary);color:#fff;border-radius:12px;padding:0 12px;border:var(--fyt-border-thick) solid var(--fyt-border-strong);box-shadow:var(--fyt-shadow-btn);transform:rotate(-1.5deg)}
+/* Ardot 角括号装饰 desc */
+.sec-desc{
+  position:relative;width:fit-content;margin:18px auto 0;font-size:17px;line-height:26px;color:var(--fyt-text-secondary);
+}
+.sec-desc::before{content:"";position:absolute;left:-22px;top:-6px;width:16px;height:16px;background:linear-gradient(135deg,var(--fyt-color-secondary),var(--fyt-color-secondary-hover));clip-path:polygon(0 0,100% 0,100% 4px,4px 4px,4px 100%,0 100%,0 0)}
+.sec-desc::after{content:"";position:absolute;right:-22px;bottom:-6px;width:16px;height:16px;background:linear-gradient(135deg,var(--fyt-color-secondary),var(--fyt-color-secondary-hover));clip-path:polygon(0 calc(100% - 4px),0 100%,100% 100%,100% 0,calc(100% - 4px) 0,calc(100% - 4px) calc(100% - 4px),0 calc(100% - 4px))}
+
+/* ============ Section 1 能力区（中央主视觉 + 漂浮元素） ============ */
+.showcase{
+  position:relative;max-width:960px;margin:0 auto;aspect-ratio:16/9.6;
+  background:var(--fyt-color-surface-alt);border:var(--fyt-border-thick) solid var(--fyt-border-strong);
+  border-radius:var(--fyt-radius-xl);box-shadow:var(--fyt-shadow-pop);overflow:visible;
+}
+.showcase-in{position:absolute;inset:0;border-radius:24px;overflow:hidden;background:linear-gradient(160deg,#FFF6E9 0%,#FFFFFF 55%,#FFD9E6 130%);padding:34px 38px}
+.sc-head{display:flex;align-items:center;gap:8px;margin-bottom:22px}
+.sc-head i{width:11px;height:11px;border-radius:50%;border:2px solid var(--fyt-border-strong)}
+.sc-head i:nth-child(1){background:var(--fyt-color-primary)}
+.sc-head i:nth-child(2){background:var(--fyt-color-secondary)}
+.sc-head i:nth-child(3){background:var(--fyt-color-success)}
+.sc-title{font-size:15px;font-weight:var(--fyt-weight-black);color:var(--fyt-color-dark);margin-left:8px;letter-spacing:1px}
+/* 订单流水模拟 */
+.sc-flow{display:flex;flex-direction:column;gap:12px}
+.sc-row{
+  display:flex;align-items:center;gap:14px;background:#fff;border:2px solid var(--fyt-border-default);
+  border-radius:16px;padding:14px 18px;opacity:0;transform:translateX(-24px);
+}
+.showcase.in .sc-row{animation:rowIn .55s var(--fyt-ease-spring) forwards}
+.showcase.in .sc-row:nth-child(1){animation-delay:.15s}
+.showcase.in .sc-row:nth-child(2){animation-delay:.4s}
+.showcase.in .sc-row:nth-child(3){animation-delay:.65s}
+.showcase.in .sc-row:nth-child(4){animation-delay:.9s}
+@keyframes rowIn{to{opacity:1;transform:translateX(0)}}
+.sc-ic{width:42px;height:42px;border-radius:12px;border:2.5px solid var(--fyt-border-strong);display:flex;align-items:center;justify-content:center;font-size:20px;background:var(--fyt-color-surface);box-shadow:0 2px 0 0 var(--fyt-border-strong);flex-shrink:0}
+.sc-main b{font-size:14px;color:var(--fyt-color-dark);display:block}
+.sc-main span{font-size:12px;color:var(--fyt-text-secondary)}
+.sc-right{margin-left:auto;text-align:right}
+.sc-right .ingot{font-size:16px;font-weight:var(--fyt-weight-black);color:var(--fyt-text-price);font-family:"Baloo 2",sans-serif}
+.sc-right .st{display:inline-block;margin-top:3px;font-size:11px;font-weight:var(--fyt-weight-bold);padding:1px 9px;border-radius:999px;border:1.5px solid}
+.sc-right .st.ok{color:#1E8A50;background:var(--fyt-color-success-bg);border-color:var(--fyt-color-success)}
+.sc-right .st.cps{color:var(--fyt-color-dark);background:var(--fyt-color-warning-bg);border-color:var(--fyt-color-secondary)}
+/* 漂浮元素（对照 interface-section__animate-element） */
+.sc-float{position:absolute;z-index:3;font-weight:var(--fyt-weight-bold);color:var(--fyt-color-dark)}
+.scf-1{top:-26px;right:8%;background:var(--fyt-color-warning);border:var(--fyt-border-thick) solid var(--fyt-border-strong);border-radius:999px;padding:10px 18px;box-shadow:var(--fyt-shadow-card);font-size:14px;animation:stickerFloat 5s ease-in-out infinite}
+.scf-2{bottom:8%;left:-56px;background:var(--fyt-color-surface-alt);border:var(--fyt-border-thick) solid var(--fyt-border-strong);border-radius:16px;padding:12px 16px;box-shadow:var(--fyt-shadow-card);font-size:13px;animation:stickerFloat 6.5s ease-in-out .6s infinite;transform:rotate(-3deg)}
+.scf-2 b{color:var(--fyt-color-primary)}
+.scf-3{top:38%;right:-52px;background:var(--fyt-color-primary);color:#fff;border:var(--fyt-border-thick) solid var(--fyt-border-strong);border-radius:16px;padding:12px 16px;box-shadow:var(--fyt-shadow-card);font-size:13px;animation:stickerFloat 5.8s ease-in-out .3s infinite;transform:rotate(3deg)}
+/* 三能力卡 */
+.cap-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:56px}
+.cap-card{
+  background:var(--fyt-color-surface-alt);border:var(--fyt-border-thick) solid var(--fyt-border-strong);
+  border-radius:var(--fyt-radius-lg);box-shadow:var(--fyt-shadow-card);padding:26px;
+  transition:transform var(--fyt-duration-fast) var(--fyt-ease-out),box-shadow var(--fyt-duration-fast);
+}
+.cap-card:hover{transform:translateY(-4px);box-shadow:var(--fyt-shadow-pop)}
+.cap-card .ic{width:52px;height:52px;border-radius:14px;border:var(--fyt-border-thick) solid var(--fyt-border-strong);box-shadow:0 3px 0 0 var(--fyt-border-strong);display:flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:16px}
+.cap-card:nth-child(1) .ic{background:var(--fyt-color-primary-light)}
+.cap-card:nth-child(2) .ic{background:var(--fyt-color-warning-bg)}
+.cap-card:nth-child(3) .ic{background:var(--fyt-color-success-bg)}
+.cap-card h3{font-size:18px;font-weight:var(--fyt-weight-black);color:var(--fyt-color-dark);margin-bottom:8px}
+.cap-card p{font-size:14px;line-height:22px;color:var(--fyt-text-secondary)}
+.cap-card .tags{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.cap-card .tag{font-size:12px;font-weight:var(--fyt-weight-bold);background:var(--fyt-color-warning);color:var(--fyt-text-on-secondary);border:1.5px solid var(--fyt-border-strong);border-radius:999px;padding:2px 10px}
+
+/* ============ Section 2 多端矩阵（渐变色带 + 轮播，对照 swiper-section） ============ */
+.band{
+  position:relative;overflow:hidden;
+  background:linear-gradient(160deg,var(--fyt-color-primary-light) 0%,var(--fyt-color-surface) 45%,#FFF1D6 100%);
+  padding:110px 0 96px;
+}
+.band::before{content:"";position:absolute;top:-70px;left:-70px;width:220px;height:220px;border-radius:50%;background:rgba(232,51,109,.08)}
+.band::after{content:"";position:absolute;bottom:-90px;right:-60px;width:280px;height:280px;border-radius:50%;background:rgba(255,170,29,.12)}
+.carousel{position:relative;max-width:1080px;margin:0 auto;z-index:1}
+.car-track{display:flex;transition:transform var(--fyt-duration-slow) var(--fyt-ease-spring)}
+.car-slide{flex:0 0 100%;display:flex;justify-content:center;padding:12px 0 8px}
+.device-duo{display:flex;gap:32px;align-items:center;justify-content:center}
+.mini-phone{
+  width:250px;height:500px;background:#fff;border:var(--fyt-border-thick) solid var(--fyt-border-strong);
+  border-radius:34px;box-shadow:var(--fyt-shadow-pop);padding:12px;transform:rotate(-2deg);
+  animation:phoneBob 7s ease-in-out infinite;
+}
+.mini-phone.alt{transform:rotate(2deg);animation-delay:1.2s}
+.mini-screen{height:100%;border-radius:24px;background:var(--fyt-color-surface);border:1.5px solid var(--fyt-border-default);padding:12px;overflow:hidden;display:flex;flex-direction:column;gap:9px}
+.mini-bar{height:12px;border-radius:6px;background:var(--fyt-color-primary-light);border:1.5px solid var(--fyt-border-strong)}
+.mini-bar.gold{background:var(--fyt-color-warning-bg)}
+.mini-bar.w40{width:40%}.mini-bar.w70{width:70%}.mini-bar.w55{width:55%}
+.mini-card{background:#fff;border:2px solid var(--fyt-border-default);border-radius:12px;padding:9px;flex:1}
+.mini-card b{font-size:11px;color:var(--fyt-color-dark);display:block;margin-bottom:5px}
+.mini-line{height:8px;border-radius:4px;background:var(--fyt-color-surface);border:1px solid var(--fyt-border-light);margin-bottom:5px}
+.mini-line.g{background:var(--fyt-color-success-bg);border-color:var(--fyt-color-success)}
+.mini-line.r{background:var(--fyt-color-primary-light);border-color:var(--fyt-color-primary)}
+.mini-cta{height:30px;border-radius:999px;background:var(--fyt-color-primary);border:2px solid var(--fyt-border-strong);box-shadow:0 2px 0 0 var(--fyt-border-strong);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:var(--fyt-weight-bold)}
+/* 轮播导航（对照 txd-video-card-navigator） */
+.car-nav{display:flex;align-items:center;justify-content:center;gap:20px;margin-top:36px}
+.car-btns{display:flex;align-items:center;gap:6px;padding:6px;background:rgba(163,18,69,.06);backdrop-filter:blur(10px);border-radius:999px;border:1.5px solid rgba(163,18,69,.12)}
+.car-btn{width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;border-radius:50%;cursor:pointer;color:var(--fyt-color-dark);transition:all .3s ease}
+.car-btn:hover{background:rgba(163,18,69,.1)}
+.car-btn:active{transform:scale(.94)}
+.car-btn svg{width:18px;height:18px}
+/* 进度点（对照 txd-custom-slider__dots + sliderDots 动效） */
+.car-dots{display:flex;align-items:center;gap:8px;padding:14px 22px;background:rgba(232,51,109,.08);backdrop-filter:blur(10px);border-radius:999px}
+.car-dots li{list-style:none}
+.car-dots button{position:relative;width:10px;height:10px;border-radius:999px;border:none;cursor:pointer;background:var(--fyt-color-dark);opacity:.35;transition:all .3s ease;padding:0}
+.car-dots li.active button{width:36px;opacity:1}
+.car-dots li.active button::after{content:"";position:absolute;left:0;top:0;height:100%;width:10px;border-radius:999px;background:var(--fyt-color-primary);animation:sliderDots var(--slide-ms,5000ms) linear forwards}
+@keyframes sliderDots{from{width:10px}to{width:36px}}
+.car-caption{text-align:center;margin-top:22px}
+.car-caption b{font-size:18px;font-weight:var(--fyt-weight-black);color:var(--fyt-color-dark)}
+.car-caption span{display:block;font-size:14px;color:var(--fyt-text-secondary);margin-top:4px}
+
+/* ============ 特性卡片区（对照 Ardot feature 三卡） ============ */
+.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.trio-card{
+  position:relative;background:var(--fyt-color-surface-alt);
+  border:var(--fyt-border-thick) solid var(--fyt-border-strong);border-radius:var(--fyt-radius-lg);
+  box-shadow:var(--fyt-shadow-card);padding:28px;overflow:hidden;
+  transition:transform var(--fyt-duration-fast) var(--fyt-ease-out),box-shadow var(--fyt-duration-fast);
+}
+.trio-card:hover{transform:translateY(-4px);box-shadow:var(--fyt-shadow-pop)}
+.trio-card .corner{
+  position:absolute;top:-8px;left:-8px;width:44px;height:44px;border-radius:50%;
+  background:var(--fyt-color-primary);color:#fff;border:var(--fyt-border-thickest) solid var(--fyt-border-strong);
+  box-shadow:inset 0 0 0 2px #fff;display:flex;align-items:center;justify-content:center;
+  font-size:15px;font-weight:var(--fyt-weight-black);font-family:"Baloo 2",sans-serif;
+}
+.trio-card:nth-child(2) .corner{background:var(--fyt-color-secondary);color:var(--fyt-text-on-secondary)}
+.trio-card:nth-child(3) .corner{background:var(--fyt-color-dark);color:#fff}
+.trio-card h3{font-size:18px;font-weight:var(--fyt-weight-black);color:var(--fyt-color-dark);margin:14px 0 10px}
+.trio-card p{font-size:14px;line-height:23px;color:var(--fyt-text-secondary)}
+.trio-card .demo{margin-top:18px;background:var(--fyt-color-surface);border:1.5px solid var(--fyt-border-default);border-radius:14px;padding:14px}
+.demo-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.demo-row:last-child{margin-bottom:0}
+.demo-row .k{font-size:12px;color:var(--fyt-text-secondary);width:64px;flex-shrink:0}
+.demo-row .v{font-size:12px;font-weight:var(--fyt-weight-bold);color:var(--fyt-color-dark);font-family:"Baloo 2",sans-serif}
+.demo-bar{flex:1;height:10px;border-radius:999px;background:var(--fyt-color-primary-light);border:1.5px solid var(--fyt-border-strong);overflow:hidden}
+.demo-bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--fyt-color-primary),var(--fyt-color-secondary));width:0;transition:width 1.1s var(--fyt-ease-out) .3s}
+.trio-card.in .demo-bar i{width:var(--w,70%)}
+.chip-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.chip{font-size:12px;font-weight:var(--fyt-weight-bold);background:var(--fyt-color-success-bg);color:#1E8A50;border:1.5px solid var(--fyt-color-success);border-radius:999px;padding:3px 10px}
+.chip.warn{background:var(--fyt-color-warning-bg);border-color:var(--fyt-color-secondary);color:var(--fyt-color-dark)}
+
+/* ============ CTA 页脚（对照 Ardot footer 大 CTA） ============ */
+.footer-cta{position:relative;padding:130px 0 90px;text-align:center;overflow:hidden}
+.footer-cta .blob-1{position:absolute;width:420px;height:420px;border-radius:50%;background:var(--fyt-color-primary-light);top:-140px;left:50%;transform:translateX(-50%);opacity:.55;animation:blobFloat 10s ease-in-out infinite}
+.footer-title{position:relative;font-size:clamp(38px,5.4vw,64px);font-weight:var(--fyt-weight-black);color:var(--fyt-color-dark);letter-spacing:2px}
+.footer-title .stick{display:inline-block;background:var(--fyt-color-secondary);color:var(--fyt-text-on-secondary);border:var(--fyt-border-thickest) solid var(--fyt-border-strong);border-radius:20px;padding:2px 22px;box-shadow:var(--fyt-shadow-btn);transform:rotate(-2deg);margin:0 6px}
+.footer-sub{position:relative;margin-top:18px;font-size:17px;color:var(--fyt-text-secondary)}
+.footer-btns{position:relative;display:flex;gap:18px;justify-content:center;margin-top:36px;flex-wrap:wrap}
+footer.site{background:var(--fyt-color-dark);color:#fff;padding:56px 0 36px}
+.footer-grid{display:flex;justify-content:space-between;gap:40px;flex-wrap:wrap}
+.footer-brand img{height:52px;border-radius:12px;background:var(--fyt-color-surface);padding:4px;border:2px solid rgba(255,255,255,.35)}
+.footer-brand p{margin-top:14px;font-size:13px;color:rgba(255,255,255,.75)}
+.footer-brand .plat{display:flex;gap:10px;margin-top:16px}
+.footer-brand .plat span{font-size:12px;border:1.5px solid rgba(255,255,255,.4);border-radius:999px;padding:4px 12px;color:#fff}
+.footer-links{display:flex;gap:56px;flex-wrap:wrap}
+.footer-links h4{font-size:14px;font-weight:var(--fyt-weight-bold);margin-bottom:14px;color:#fff}
+.footer-links a{display:block;font-size:13px;color:rgba(255,255,255,.7);margin-bottom:10px;transition:color var(--fyt-duration-fast)}
+.footer-links a:hover{color:#fff}
+.copyright{border-top:1px solid rgba(255,255,255,.18);margin-top:44px;padding-top:22px;font-size:12px;color:rgba(255,255,255,.55);text-align:center;line-height:22px}
+
+/* ============ 滚动渐显（对照 Ardot 进场动画） ============ */
+.reveal{opacity:0;transform:translateY(28px);transition:opacity .7s var(--fyt-ease-out),transform .7s var(--fyt-ease-spring);transition-delay:var(--d,0ms)}
+.reveal.in{opacity:1;transform:none}
+
+/* ============ 响应式 ============ */
+@media (max-width:960px){
+  .hero-inner{grid-template-columns:1fr;gap:56px}
+  .hero-visual{display:none}
+  .cap-cards,.trio{grid-template-columns:1fr}
+  .device-duo .mini-phone.alt{display:none}
+  .nav-links{display:none}
+  .scf-2,.scf-3{display:none}
+  .hero{min-height:auto;padding-bottom:60px}
+}
+/* 规范 §4 红线 5：动效尊重 reduced-motion */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  .reveal{opacity:1;transform:none}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= 导航 ================= -->
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <a class="nav-logo" href="#">
+      <img src="assets/logo.png" alt="FYT360 logo" />
+    </a>
+    <nav class="nav-links" id="navLinks">
+      <a href="#supply" class="active">供给能力</a>
+      <a href="#clients">多端矩阵</a>
+      <a href="#trust">安全与隔离</a>
+      <a href="#growth">数据与增长</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="nav-github" href="https://github.com/" target="_blank" rel="noopener" aria-label="GitHub 开源仓库">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        开源
+      </a>
+      <a class="btn btn-primary btn-sm" href="#start">免费使用</a>
+    </div>
+  </div>
+</header>
+
+<!-- ================= Hero 轮播 ================= -->
+<section class="hero">
+  <div class="hero-bg">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <svg class="spark" style="width:34px;height:34px;top:18%;left:8%" viewBox="0 0 24 24"><path d="M12 0l2.6 9.4L24 12l-9.4 2.6L12 24l-2.6-9.4L0 12l9.4-2.6z" fill="#FFAA1D"/></svg>
+    <svg class="spark" style="width:22px;height:22px;top:64%;left:44%;animation-delay:1.2s" viewBox="0 0 24 24"><path d="M12 0l2.6 9.4L24 12l-9.4 2.6L12 24l-2.6-9.4L0 12l9.4-2.6z" fill="#E8336D"/></svg>
+    <svg class="spark" style="width:26px;height:26px;top:30%;right:6%;animation-delay:2s" viewBox="0 0 24 24"><path d="M12 0l2.6 9.4L24 12l-9.4 2.6L12 24l-2.6-9.4L0 12l9.4-2.6z" fill="#A31245"/></svg>
+  </div>
+  <div class="wrap hero-inner">
+    <div class="hero-copy">
+      <span class="hero-badge"><span class="dot"></span>开源 · 多租户 · 一键自部署</span>
+      <h1 class="hero-title">吃喝玩乐购<br /><span class="stick">一站</span>全<span class="stick stick-gold">变现</span></h1>
+      <p class="hero-sub">聚合 <b>京东 / 淘宝 / 拼多多 / 唯品会</b> 与 6 大类 83 品牌权益供给，多开小程序 + H5 分发，元宝结算、三级分销、可视化 DIY 装修 —— 一个后台全搞定。</p>
+      <div class="hero-btns">
+        <a class="btn btn-primary" href="#start">免费开始</a>
+        <a class="btn btn-plain" href="#supply">了解能力</a>
+      </div>
+      <div class="hero-metrics">
+        <div class="m"><b>83</b><span>权益品牌供给</span></div>
+        <div class="m"><b>4</b><span>平台 CPS 实时转链</span></div>
+        <div class="m"><b>3</b><span>级分销体系</span></div>
+        <div class="m"><b>45</b><span>屏全量设计稿</span></div>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="float-sticker fs-1 fs-ingot"><span class="em">🪙</span>元宝 +500</div>
+      <div class="float-sticker fs-2"><span class="em">🔗</span>转链成功</div>
+      <div class="float-sticker fs-3"><span class="em">💰</span>佣金 ¥28.6 已到账</div>
+      <div class="phone">
+        <div class="phone-screen">
+          <div class="phone-status"><span>9:41</span><span>FYT360</span></div>
+          <div class="phone-head"><span class="hi">Hi，福袋兽 🐾</span><span class="avatar">🦊</span></div>
+          <div class="phone-banner"><b>新人专享 · 立领 500 元宝</b><span>自购返 40%，分享再赚 10%</span></div>
+          <div class="phone-cats">
+            <div class="c"><span class="ic">🍔</span><span class="t">吃喝</span></div>
+            <div class="c"><span class="ic">🥤</span><span class="t">喝彩</span></div>
+            <div class="c"><span class="ic">🎮</span><span class="t">玩乐</span></div>
+            <div class="c"><span class="ic">🛍️</span><span class="t">购物</span></div>
+            <div class="c"><span class="ic">🎬</span><span class="t">权益</span></div>
+          </div>
+          <div class="phone-goods">
+            <div class="g"><span class="thumb">🧋</span><span class="gi"><b>奈雪的茶 · 券</b><span>¥9.9</span></span><span class="go">返元宝</span></div>
+            <div class="g"><span class="thumb">🎫</span><span class="gi"><b>电影通兑券</b><span>¥33.0</span></span><span class="go">返元宝</span></div>
+            <div class="g"><span class="thumb">📺</span><span class="gi"><b>视频会员月卡</b><span>¥15.0</span></span><span class="go">返元宝</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= Section 1 供给能力 ================= -->
+<section class="block" id="supply">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="sec-eyebrow">聚合供给</span>
+      <h2 class="sec-title">从商品到佣金，<span class="hl">平台</span>协同落地<span class="stick">每一单</span></h2>
+      <p class="sec-desc">C 端全部实时透传蚂蚁星球网关，商品零入库、数据主权在供给侧；唯一落库面是订单——归因、元宝、对账一笔不漏。</p>
+    </div>
+    <div class="showcase reveal" id="showcase">
+      <div class="sc-float scf-1">⚡ 秒级转链</div>
+      <div class="sc-float scf-2">拼多多订单 <b>#104</b> 已归因</div>
+      <div class="sc-float scf-3">结算引擎<br />自动三跳分佣</div>
+      <div class="showcase-in">
+        <div class="sc-head"><i></i><i></i><i></i><span class="sc-title">FYT360 · 订单结算流水（实时）</span></div>
+        <div class="sc-flow">
+          <div class="sc-row"><span class="sc-ic">🛒</span><span class="sc-main"><b>拼多多 · 零食大礼包</b><span>实付 ¥89.0 · 用户 uid#1024</span></span><span class="sc-right"><span class="ingot">+890 元宝</span><br /><span class="st ok">已结算</span></span></div>
+          <div class="sc-row"><span class="sc-ic">📺</span><span class="sc-main"><b>视频会员月卡 · 直充</b><span>实付 ¥15.0 · 蚂蚁星球履约</span></span><span class="sc-right"><span class="ingot">+150 元宝</span><br /><span class="st ok">已结算</span></span></div>
+          <div class="sc-row"><span class="sc-ic">👟</span><span class="sc-main"><b>淘宝 · 运动鞋</b><span>淘口令成交 · 佣金 ¥23.4</span></span><span class="sc-right"><span class="ingot">三跳分佣</span><br /><span class="st cps">L2 40%</span></span></div>
+          <div class="sc-row"><span class="sc-ic">↩️</span><span class="sc-main"><b>唯品会 · 退款冲销</b><span>元宝扣回 + 冻结挂账</span></span><span class="sc-right"><span class="ingot">-420 元宝</span><br /><span class="st ok">账实相符</span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="cap-cards">
+      <div class="cap-card reveal" style="--d:0ms">
+        <span class="ic">🧩</span>
+        <h3>多平台商品聚合</h3>
+        <p>京东、淘宝、拼多多、唯品会四大平台 + 蚂蚁星球 6 大类 83 品牌权益，列表/搜索/详情实时透传，无需自建商品库。</p>
+        <div class="tags"><span class="tag">jd</span><span class="tag">tb</span><span class="tag">pdd</span><span class="tag">vip</span></div>
+      </div>
+      <div class="cap-card reveal" style="--d:120ms">
+        <span class="ic">🔗</span>
+        <h3>秒级转链与跳转</h3>
+        <p>小程序官方包装跳转、H5 直跳联盟链接、淘宝淘口令自动复制——四种平台各自最优路径，转化不丢一步。</p>
+        <div class="tags"><span class="tag">小程序直跳</span><span class="tag">H5 直跳</span><span class="tag">淘口令</span></div>
+      </div>
+      <div class="cap-card reveal" style="--d:240ms">
+        <span class="ic">🪙</span>
+        <h3>自动结算引擎</h3>
+        <p>订单按平台归因键自动匹配用户，元宝按实付金额入账，佣金沿关系树三跳分配；退款自动冲销、差额冻结挂账。</p>
+        <div class="tags"><span class="tag">自动归因</span><span class="tag">幂等结算</span><span class="tag">冲销回滚</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= Section 2 多端矩阵（渐变色带轮播） ================= -->
+<section class="band" id="clients">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="sec-eyebrow">多端矩阵</span>
+      <h2 class="sec-title">从 C 端到后台，自在掌控<span class="stick">变现节奏</span></h2>
+      <p class="sec-desc">小程序、H5、运营后台三端同源 Wave 波普 VI，一套 Design Token 全端一致，换租户主题组件自动跟随。</p>
+    </div>
+    <div class="carousel reveal">
+      <div class="car-track" id="carTrack">
+        <div class="car-slide">
+          <div class="device-duo">
+            <div class="mini-phone"><div class="mini-screen">
+              <div class="mini-bar w40"></div>
+              <div class="mini-card"><b>商品流 · goods-feed</b><div class="mini-line"></div><div class="mini-line w70"></div><div class="mini-line r"></div></div>
+              <div class="mini-card"><b>元宝明细</b><div class="mini-line g"></div><div class="mini-line"></div><div class="mini-line g"></div></div>
+              <div class="mini-cta">立即兑换等级</div>
+            </div></div>
+            <div class="mini-phone alt"><div class="mini-screen">
+              <div class="mini-bar gold w55"></div>
+              <div class="mini-card"><b>会员权益 · 83 品牌</b><div class="mini-line"></div><div class="mini-line"></div><div class="mini-line w70"></div></div>
+              <div class="mini-card"><b>邀请推广 · 三级关系</b><div class="mini-line r"></div><div class="mini-line"></div><div class="mini-line w55"></div></div>
+              <div class="mini-cta">呼起权益小程序</div>
+            </div></div>
+          </div>
+        </div>
+        <div class="car-slide">
+          <div class="device-duo">
+            <div class="mini-phone"><div class="mini-screen">
+              <div class="mini-bar w70"></div>
+              <div class="mini-card"><b>H5 · 公众号静默授权</b><div class="mini-line g"></div><div class="mini-line"></div><div class="mini-line w55"></div></div>
+              <div class="mini-card"><b>联盟链接直跳</b><div class="mini-line r"></div><div class="mini-line"></div><div class="mini-line w70"></div></div>
+              <div class="mini-cta">location.href 直跳</div>
+            </div></div>
+            <div class="mini-phone alt"><div class="mini-screen">
+              <div class="mini-bar gold w40"></div>
+              <div class="mini-card"><b>淘口令中间页</b><div class="mini-line"></div><div class="mini-line w55"></div><div class="mini-line"></div></div>
+              <div class="mini-card"><b>口令已复制</b><div class="mini-line g"></div><div class="mini-line g"></div><div class="mini-line w70"></div></div>
+              <div class="mini-cta">打开淘宝购买</div>
+            </div></div>
+          </div>
+        </div>
+        <div class="car-slide">
+          <div class="device-duo">
+            <div class="mini-phone"><div class="mini-screen">
+              <div class="mini-bar w55"></div>
+              <div class="mini-card"><b>后台 · 元宝对账</b><div class="mini-line g"></div><div class="mini-line"></div><div class="mini-line g"></div><div class="mini-line w55"></div></div>
+              <div class="mini-cta">对账差额 = 0 ✅</div>
+            </div></div>
+            <div class="mini-phone alt"><div class="mini-screen">
+              <div class="mini-bar gold w70"></div>
+              <div class="mini-card"><b>DIY 装修编辑器</b><div class="mini-line r"></div><div class="mini-line"></div><div class="mini-line w70"></div></div>
+              <div class="mini-card"><b>AI 动态装修 · 建页</b><div class="mini-line"></div><div class="mini-line w55"></div><div class="mini-line r"></div></div>
+              <div class="mini-cta">一键发布页面</div>
+            </div></div>
+          </div>
+        </div>
+      </div>
+      <div class="car-nav">
+        <div class="car-btns">
+          <button class="car-btn" id="carPrev" aria-label="上一组"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+          <button class="car-btn" id="carNext" aria-label="下一组"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+        </div>
+        <ul class="car-dots" id="carDots"></ul>
+      </div>
+      <div class="car-caption" id="carCaption"><b>小程序端 · 19 屏</b><span>goods-feed 商品流 / 元宝明细 / 会员等级兑换 / 三级关系树</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= Section 3 安全与隔离 ================= -->
+<section class="block" id="trust">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="sec-eyebrow">安全与隔离</span>
+      <h2 class="sec-title">从租户到数据，<span class="hl">每次流转</span>都<span class="stick">安心托付</span></h2>
+      <p class="sec-desc">覆盖站点隔离、凭据托管与审计追溯的全流程体系，多租户互不越界，开源部署数据完全自有。</p>
+    </div>
+    <div class="trio">
+      <div class="trio-card reveal" style="--d:0ms">
+        <span class="corner">01</span>
+        <h3>多租户站点硬隔离</h3>
+        <p>A/B 租户各自管理站点业务与数据，自营与团购商品按归属站点站内闭环；凭据跟站点走、绝不进代码仓库。</p>
+        <div class="chip-row"><span class="chip">site_id 隔离</span><span class="chip">凭据托管</span><span class="chip warn">RBAC 三角色</span></div>
+      </div>
+      <div class="trio-card reveal" style="--d:120ms">
+        <span class="corner">02</span>
+        <h3>订单归因对账</h3>
+        <p>四大平台归因键自动匹配，pdd/jd/tb/vip 订单状态机三维护；对账屏实时亮牌，应付元宝与实际发放差额一目了然。</p>
+        <div class="trio-card-demo demo">
+          <div class="demo-row"><span class="k">已结算</span><span class="demo-bar"><i style="--w:82%"></i></span><span class="v">1,969</span></div>
+          <div class="demo-row"><span class="k">净发放</span><span class="demo-bar"><i style="--w:82%"></i></span><span class="v">1,969</span></div>
+          <div class="demo-row"><span class="k">差额</span><span class="demo-bar"><i style="--w:0%"></i></span><span class="v">0 ✅</span></div>
+        </div>
+      </div>
+      <div class="trio-card reveal" style="--d:240ms">
+        <span class="corner">03</span>
+        <h3>开源一键部署</h3>
+        <p>CloudBase 三件套（建表 / 种子 / 部署）全部幂等脚本化，新环境一键跑通；定时器云函数化，无需手动配置。</p>
+        <div class="chip-row"><span class="chip">migrate</span><span class="chip">seed</span><span class="chip">deploy</span><span class="chip warn">全幂等</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= Section 4 数据与增长 ================= -->
+<section class="block" id="growth" style="padding-top:20px">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="sec-eyebrow">数据与增长</span>
+      <h2 class="sec-title">从开店到增长，每个细节都<span class="stick">精准落地</span></h2>
+      <p class="sec-desc">装修不写代码、增长不靠猜：页面 Schema 引擎 + AI 建页 + 全链路埋点，运营自己就能把页面玩出花。</p>
+    </div>
+    <div class="trio">
+      <div class="trio-card reveal" style="--d:0ms">
+        <span class="corner">04</span>
+        <h3>可视化 DIY 装修</h3>
+        <p>23 个内置组件拖拽增删，数据源三模式绑定（手动/自动/平台 Tab），多套页面按站点保存、定时切换大促皮肤。</p>
+        <div class="chip-row"><span class="chip">23 组件</span><span class="chip">Schema 驱动</span><span class="chip warn">大促皮肤</span></div>
+      </div>
+      <div class="trio-card reveal" style="--d:120ms">
+        <span class="corner">05</span>
+        <h3>AI 动态装修</h3>
+        <p>一句自然语言生成整页 Schema，LLM 只产出受约束 JSON、安全可控；支持以图生页，AI 产物可一键另存为模板。</p>
+        <div class="chip-row"><span class="chip">文生页</span><span class="chip">以图生页</span><span class="chip warn">可回滚</span></div>
+      </div>
+      <div class="trio-card reveal" style="--d:240ms">
+        <span class="corner">06</span>
+        <h3>元宝增长飞轮</h3>
+        <p>自购返元宝 + 邀请奖元宝 + 等级兑换提佣金比例，虚拟货币规避支付合规风险，撬动 L1→L3 三级分销自增长。</p>
+        <div class="trio-card-demo demo">
+          <div class="demo-row"><span class="k">L1 省心</span><span class="demo-bar"><i style="--w:12%"></i></span><span class="v">0%</span></div>
+          <div class="demo-row"><span class="k">L2 返利</span><span class="demo-bar"><i style="--w:50%"></i></span><span class="v">40%+10%</span></div>
+          <div class="demo-row"><span class="k">L3 合伙</span><span class="demo-bar"><i style="--w:85%"></i></span><span class="v">60%+20%+5%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CTA ================= -->
+<section class="footer-cta" id="start">
+  <div class="blob-1"></div>
+  <h2 class="footer-title reveal">让每一分流量<span class="stick">都变现</span></h2>
+  <p class="footer-sub reveal" style="--d:120ms">开源 · 多租户 · 一键自部署，今天就把供给、结算与分销装进你的品牌。</p>
+  <div class="footer-btns reveal" style="--d:240ms">
+    <a class="btn btn-primary" href="https://github.com/" target="_blank" rel="noopener">GitHub 获取源码</a>
+    <a class="btn btn-plain" href="https://mk.fyt360.cn/admin/" target="_blank" rel="noopener">在线体验后台</a>
+  </div>
+</section>
+
+<!-- ================= 页脚 ================= -->
+<footer class="site">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <img src="assets/logo.png" alt="FYT360" />
+        <p>吃喝玩乐购 · 一站全变现<br />一站式全域流量变现开源 SaaS</p>
+        <div class="plat"><span>小程序</span><span>H5</span><span>运营后台</span></div>
+      </div>
+      <div class="footer-links">
+        <div>
+          <h4>产品</h4>
+          <a href="#supply">供给能力</a>
+          <a href="#clients">多端矩阵</a>
+          <a href="#growth">DIY 装修</a>
+        </div>
+        <div>
+          <h4>资源</h4>
+          <a href="https://github.com/" target="_blank" rel="noopener">GitHub</a>
+          <a href="javascript:void(0)">帮助文档</a>
+          <a href="javascript:void(0)">API 清单</a>
+        </div>
+        <div>
+          <h4>关于</h4>
+          <a href="javascript:void(0)">开源协议</a>
+          <a href="javascript:void(0)">隐私协议</a>
+          <a href="javascript:void(0)">联系我们</a>
+        </div>
+      </div>
+    </div>
+    <div class="copyright">Copyright © 2026 FYT360 · 吃喝玩乐购 一站全变现 · 基于 CloudBase 开源自部署</div>
+  </div>
+</footer>
+
+<script>
+/* ============ 滚动渐显（IntersectionObserver） ============ */
+const io = new IntersectionObserver((es) => {
+  es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+}, { threshold: 0.18 });
+document.querySelectorAll('.reveal, .showcase, .trio-card').forEach((el) => io.observe(el));
+
+/* ============ 导航滚动态 + 锚点高亮 ============ */
+const nav = document.getElementById('nav');
+const links = document.querySelectorAll('#navLinks a');
+addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', scrollY > 8);
+  let cur = '';
+  document.querySelectorAll('section[id]').forEach((s) => { if (scrollY >= s.offsetTop - 120) cur = s.id; });
+  links.forEach((a) => a.classList.toggle('active', a.getAttribute('href') === '#' + cur));
+}, { passive: true });
+
+/* ============ 多端矩阵轮播（5s 自动 + 进度点 + 手动翻页） ============ */
+const CAPTIONS = [
+  ['小程序端 · 19 屏', 'goods-feed 商品流 / 元宝明细 / 会员等级兑换 / 三级关系树'],
+  ['H5 端 · 3 屏', '公众号静默授权 / 联盟链接直跳 / 淘口令中间页'],
+  ['运营后台 · 14 屏', '元宝对账 / DIY 装修 / AI 建页 / 订单与佣金中心'],
+];
+const SLIDE_MS = 5000;
+const track = document.getElementById('carTrack');
+const dotsUl = document.getElementById('carDots');
+const capEl = document.getElementById('carCaption');
+const N = CAPTIONS.length;
+let cur = 0, timer = null;
+CAPTIONS.forEach((_, i) => {
+  const li = document.createElement('li');
+  li.innerHTML = '<button aria-label="第' + (i + 1) + '组"></button>';
+  li.querySelector('button').addEventListener('click', () => go(i, true));
+  dotsUl.appendChild(li);
+});
+const dots = [...dotsUl.children];
+function render() {
+  track.style.transform = 'translateX(-' + cur * 100 + '%)';
+  dots.forEach((li, i) => li.classList.toggle('active', i === cur));
+  capEl.innerHTML = '<b>' + CAPTIONS[cur][0] + '</b><span>' + CAPTIONS[cur][1] + '</span>';
+}
+function go(i, manual) {
+  cur = (i + N) % N;
+  render();
+  if (manual) restart();
+}
+function restart() {
+  clearInterval(timer);
+  // 重建 active 点以重置 sliderDots 进度动画
+  dots.forEach((li, i) => { if (i === cur) { const clone = li.cloneNode(true); li.replaceWith(clone); } });
+  const fresh = [...dotsUl.children];
+  fresh.forEach((li, i) => li.querySelector('button').addEventListener('click', () => go(i, true)));
+  dots.length = 0; dots.push(...fresh);
+  timer = setInterval(() => go(cur + 1), SLIDE_MS);
+}
+document.getElementById('carPrev').addEventListener('click', () => go(cur - 1, true));
+document.getElementById('carNext').addEventListener('click', () => go(cur + 1, true));
+render(); restart();
+</script>
+</body>
+</html>

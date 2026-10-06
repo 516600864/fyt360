@@ -1,0 +1,16 @@
+{
+  "libVersion": "3.17.3",
+  "projectname": "mini",
+  "setting": {
+    "urlCheck": true,
+    "coverView": true,
+    "lazyloadPlaceholderEnable": false,
+    "skylineRenderEnable": false,
+    "preloadBackgroundData": false,
+    "autoAudits": false,
+    "showShadowRootInWxmlPanel": true,
+    "compileHotReLoad": true,
+    "useGlassEaselForWxml": false,
+    "bigPackageSizeSupport": true
+  }
+}

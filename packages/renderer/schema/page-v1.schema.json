@@ -1,0 +1,165 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "fyt360://schema/page-v1.schema.json",
+  "title": "FYT360 页面 Schema 合同 v1",
+  "description": "页面 = JSON Schema，渲染器统一消费；DIY 拖拽与 LLM（cloudbase-agent）都只产出本合同实例（§2.3-3 / §6.1）。四条结构性约定：①统一 Action 协议；②数据源绑定三模式；③主题 token 消费（组件内禁止写死色值）；④埋点位（component_id + floor_id）。",
+  "type": "object",
+  "required": [
+    "version",
+    "page",
+    "floors"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "合同版本，向后不兼容时递增"
+    },
+    "page": {
+      "type": "string",
+      "description": "页面键：home（mini 首页）/ home_h5（H5 首页，当前与 home 同稿）/ 未来 activity 等",
+      "examples": [
+        "home",
+        "home_h5"
+      ]
+    },
+    "theme": {
+      "type": "object",
+      "description": "可选：页内主题覆盖，键为 --fyt-* 变量名（不含前缀亦可），未提供的变量用默认值",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "floors": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/definitions/floor"
+      }
+    }
+  },
+  "definitions": {
+    "action": {
+      "type": "object",
+      "description": "约定① 统一 Action 协议：所有组件可点区域共用",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "jump",
+            "plugin-launch",
+            "activity",
+            "popup",
+            "none"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "page",
+            "h5",
+            "weapp"
+          ],
+          "description": "仅 jump 时必填"
+        },
+        "value": {
+          "type": "string",
+          "description": "目标值：页面路径 / H5 链接 / 插件或品牌标识 / 弹窗内容键"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "dataSource": {
+      "type": "object",
+      "description": "约定② 数据源绑定三模式",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "category",
+            "platform_tab",
+            "self"
+          ],
+          "description": "约定② 数据源绑定三模式+自营：manual=props 内联；category=分类键；platform_tab=CPS 平台键列表（实时透传不落库）；self=自营商品库（唯一存在选品的模式，params.goods_ids + params.badge）"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "manual: sku/品牌 id 列表；category: 分类键；platform_tab: 平台键列表"
+        }
+      }
+    },
+    "floor": {
+      "type": "object",
+      "required": [
+        "type",
+        "floor_id",
+        "props"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "swiper",
+            "search-bar",
+            "nav",
+            "coupon-strip",
+            "brand-chips",
+            "goods-feed",
+            "floor-card",
+            "seckill",
+            "notice",
+            "rich-text",
+            "float-btn",
+            "category-nav",
+            "member-card",
+            "coupon-wall",
+            "group-buy-floor",
+            "brand-matrix",
+            "activity-floor",
+            "ingot-entry",
+            "movie-box",
+            "redeem-entry",
+            "image-hotzone",
+            "video-floor",
+            "countdown",
+            "invite-floor",
+            "popup-modal",
+            "divider",
+            "blank"
+          ],
+          "description": "§6.1 组件库 23+ 枚举；本轮渲染器实现 6 个（swiper/search-bar/nav/coupon-strip/brand-chips/goods-feed），其余枚举保留、渲染器显示占位"
+        },
+        "floor_id": {
+          "type": "string",
+          "description": "楼层唯一键（页面内），用于埋点与 diff"
+        },
+        "component_id": {
+          "type": "string",
+          "description": "约定④ 组件实例埋点键"
+        },
+        "props": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "组件属性，随 type 变化"
+        },
+        "data_source": {
+          "$ref": "#/definitions/dataSource"
+        },
+        "action": {
+          "$ref": "#/definitions/action"
+        }
+      }
+    }
+  }
+}

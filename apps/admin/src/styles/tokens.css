@@ -1,0 +1,97 @@
+/* Design Token（后台降浓度：保留色板/描边/圆角，去 IP 装饰与 hover 位移） */
+:root {
+  --fyt-color-primary: #e8336d;
+  --fyt-color-secondary: #ffaa1d;
+  --fyt-color-surface: #fff6e9;
+  --fyt-color-dark: #a31245;
+  --fyt-text-primary: #a31245;
+  --fyt-text-secondary: #8a6b75;
+  --fyt-border-strong: #a31245;
+  --fyt-border-default: #f0dfc8;
+  --fyt-radius-md: 12px;
+  --fyt-radius-lg: 20px;
+  --fyt-border-thick: 3px;
+  --fyt-shadow-soft: 0 4px 16px rgba(163, 18, 69, 0.08);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--fyt-color-surface);
+  color: var(--fyt-text-primary);
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* —— Element Plus 主题桥接：EP 组件层统一吃 VI token，禁止默认蓝 —— */
+:root {
+  --el-color-primary: #e8336d;
+  --el-color-primary-light-3: #ef5f8e;
+  --el-color-primary-light-5: #f38fb0;
+  --el-color-primary-light-7: #f7bfd3;
+  --el-color-primary-light-8: #fad8e4;
+  --el-color-primary-light-9: #fdeef4;
+  --el-color-primary-dark-2: #a31245;
+
+  --el-color-warning: #ffaa1d;
+  --el-color-warning-light-3: #ffc05c;
+  --el-color-warning-light-5: #ffd58f;
+  --el-color-warning-light-7: #ffeac4;
+  --el-color-warning-light-8: #fff2d8;
+  --el-color-warning-light-9: #fff8ea;
+  --el-color-warning-dark-2: #d98c0a;
+
+  --el-color-success: #18a058;
+  --el-color-success-light-3: #55bb85;
+  --el-color-success-light-5: #8ccfae;
+  --el-color-success-light-7: #c2e5d2;
+  --el-color-success-light-8: #dae9e0;
+  --el-color-success-light-9: #e8f6ee;
+
+  --el-color-danger: #d03050;
+  --el-color-danger-light-3: #dd6679;
+  --el-color-danger-light-5: #e795a4;
+  --el-color-danger-light-7: #f2c4cd;
+  --el-color-danger-light-8: #f7dade;
+  --el-color-danger-light-9: #fbecf0;
+
+  --el-border-radius-base: 10px;
+  --el-border-color: #f0dfc8;
+  --el-border-color-light: #f3e6d4;
+  --el-border-color-lighter: #f6ecdf;
+  --el-fill-color-light: #fff6e9;
+}
+
+/* 菜单：贴纸感圆角项 + 玫红激活底 */
+.el-menu { background: transparent; }
+.el-menu-item {
+  border-radius: 10px;
+  margin: 4px 10px;
+  height: 44px;
+  font-weight: 600;
+  color: var(--fyt-text-primary);
+}
+.el-menu-item:hover { background: var(--fyt-color-surface); }
+.el-menu-item.is-active {
+  background: var(--el-color-primary-light-9);
+  color: var(--fyt-color-primary);
+  box-shadow: inset 0 0 0 1.5px var(--fyt-color-primary);
+}
+
+/* 表格：奶油白表头 + 波普 hover */
+.el-table { --el-table-row-hover-bg-color: #fdeef4; --el-table-header-bg-color: #fff6e9; }
+.el-table th.el-table__cell {
+  background: var(--fyt-color-surface);
+  color: var(--fyt-color-dark);
+  font-weight: 700;
+}
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell { background: #fffaf2; }
+
+/* 按钮/分页：描边加重一档，呼应 VI 粗描边 */
+.el-button { font-weight: 600; }
+.el-button.is-plain { border-width: 1.5px; }
+.el-pagination { --el-pagination-hover-color: var(--fyt-color-primary); }
+.el-pagination .el-pager li.is-active {
+  background: var(--fyt-color-primary);
+  color: #fff;
+  border-radius: 8px;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "FYT360",
+  "appid": "",
+  "description": "FYT360 · 吃喝玩乐购 一站全变现",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "vueVersion": "3",
+  "h5": {
+    "title": "FYT360",
+    "router": {
+      "mode": "hash",
+      "base": "/h5/"
+    }
+  }
+}

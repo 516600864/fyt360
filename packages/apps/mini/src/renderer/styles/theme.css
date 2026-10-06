@@ -1,0 +1,39 @@
+/* ============================================================
+   FYT360 渲染器主题变量（§6.1 约定③：组件只读 var(--fyt-*)，禁止写死色值）
+   默认值 = VI 波普风（玫红/鎏金/奶油白/深玫）；站点 theme.json 可逐项覆盖
+   （SchemaPage 根节点按 site.theme 绑定内联 style 覆盖同名变量）
+   ============================================================ */
+page,
+:root {
+  /* 色板 */
+  --fyt-primary: #e8336d;        /* 玫红（主色） */
+  --fyt-primary-dark: #a31245;   /* 深玫（描边/按压态/文字强调） */
+  --fyt-secondary: #ffaa1d;      /* 鎏金（辅助/角标/按钮） */
+  --fyt-bg: #fff6e9;             /* 奶油白（页面底） */
+  --fyt-surface: #ffffff;        /* 卡片面 */
+  --fyt-surface-alt: #fff9ee;    /* 次级面（搜索条/占位） */
+  --fyt-border-strong: #e8b88a;  /* 主描边 */
+  --fyt-border-default: #f2ddc0; /* 弱描边 */
+  --fyt-text: #2b2b33;           /* 主文字 */
+  --fyt-text-2: #8c8577;         /* 次级文字 */
+  --fyt-text-3: #b9b0a0;         /* 弱文字 */
+  --fyt-on-primary: #ffffff;     /* 主色底上的文字 */
+
+  /* 圆角 */
+  --fyt-radius-lg: 24rpx;
+  --fyt-radius-md: 14rpx;
+  --fyt-radius-sm: 8rpx;
+  --fyt-radius-full: 999rpx;
+
+  /* 描边/阴影（波普粗描边 + 硬阴影） */
+  --fyt-border-thick: 3rpx;
+  --fyt-shadow-pop: 0 6rpx 0 rgba(163, 18, 69, 0.16);
+  --fyt-shadow-btn: 0 4rpx 0 rgba(163, 18, 69, 0.28);
+
+  /* 间距 */
+  --fyt-space-1: 8rpx;
+  --fyt-space-2: 16rpx;
+  --fyt-space-3: 24rpx;
+  --fyt-space-4: 32rpx;
+  --fyt-space-6: 48rpx;
+}

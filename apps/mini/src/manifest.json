@@ -1,0 +1,35 @@
+{
+  "name": "FYT360",
+  "appid": "",
+  "description": "FYT360 · 吃喝玩乐购 一站全变现",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "mp-weixin": {
+    "appid": "wxfa90eb07dc63070e",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true,
+    "darkmode": false,
+    "plugins": {
+      "mayi-ordering": { "version": "latest", "provider": "wx869ff9f322c1d2f0" },
+      "mayi-movie": { "version": "latest", "provider": "wx459759608c80cf98" },
+      "mayi-tg": { "version": "latest", "provider": "wx8b412290993bf26a" }
+    },
+    "navigateToMiniProgramAppIdList": [
+      "wx91d27dbf599dff74",
+      "wxe9714e742209d35f",
+      "wxa918198f16869201",
+      "wx32540bd863b27570",
+      "wxde8ac0a21135c07d",
+      "wxece3a9a4c82f58c9",
+      "wxaf35009675aa0b2a",
+      "wxd98a20e429ce834b",
+      "wx6a96c49f29850eb5"
+    ]
+  },
+  "vueVersion": "3"
+}

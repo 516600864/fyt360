@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>口令页 · FYT360</title>
+<!--
+  H5 口令中间页（画布 h5-45，决策#14）：
+  - 载体一：H5 商品详情点击领券/购买 → location.href 带参数跳入本页
+  - 载体二：小程序商品详情点击领券/购买 → web-view 打开本页（业务域名需在微信后台校验备案）
+  职责：仅做口令落地与剪贴板写入，不嵌第三方页面、不涉账号数据，规避外链封禁风险。
+  参数：?tkl=<淘口令>&title=<商品标题>&price=<券后价>&rebate=<自购返元宝>
+-->
+<style>
+  :root {
+    --fyt-primary: #e8336d; --fyt-primary-dark: #a31245; --fyt-secondary: #ffaa1d;
+    --fyt-bg: #fff6e9; --fyt-surface: #fffdf7; --fyt-border-strong: #e8b88a;
+    --fyt-text-primary: #2b2b33; --fyt-text-secondary: #8c8577;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: var(--fyt-bg); color: var(--fyt-text-primary);
+    font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    max-width: 560px; margin: 0 auto; min-height: 100vh;
+  }
+  /* 顶部口令已复制区（深玫红渐变 hero） */
+  .hero {
+    background: linear-gradient(135deg, #e8336d 0%, #a31245 100%);
+    padding: 56px 24px 36px; text-align: center; color: #fff;
+  }
+  .hero-check {
+    width: 92px; height: 92px; margin: 0 auto 20px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18); border: 3px solid rgba(255, 255, 255, 0.55);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hero-check svg { width: 44px; height: 44px; }
+  .hero h1 { font-size: 26px; font-weight: 900; letter-spacing: 2px; }
+  .hero p { margin-top: 10px; font-size: 14px; opacity: 0.92; }
+  .main { padding: 20px 16px 32px; display: flex; flex-direction: column; gap: 14px; }
+  /* 淘口令卡 */
+  .tkl-card {
+    background: var(--fyt-surface); border: 3px solid var(--fyt-primary-dark);
+    border-radius: 16px; padding: 18px 16px;
+  }
+  .tkl-head { display: flex; justify-content: space-between; align-items: center; }
+  .tkl-head b { font-size: 17px; }
+  .tkl-head span { color: var(--fyt-primary); font-size: 12px; font-weight: 700; }
+  .tkl-code {
+    margin: 14px 0; background: #fdf3e3; border: 2px dashed var(--fyt-border-strong);
+    border-radius: 10px; padding: 14px 12px; text-align: center;
+    font-size: 15px; font-weight: 800; word-break: break-all; line-height: 1.5;
+  }
+  .tkl-goods { color: var(--fyt-text-secondary); font-size: 12.5px; line-height: 1.7; }
+  /* 自动拉起提示条 */
+  .auto-tip {
+    background: #ffe9f0; border: 2px solid var(--fyt-primary); border-radius: 12px;
+    padding: 12px 14px; font-size: 13px; font-weight: 700; color: var(--fyt-primary-dark);
+    display: flex; align-items: center; gap: 8px;
+  }
+  /* 按钮区 */
+  .btn {
+    display: block; width: 100%; padding: 15px 0; border-radius: 999px;
+    font-size: 16.5px; font-weight: 900; text-align: center; cursor: pointer;
+    border: 3px solid transparent; transition: transform 0.15s;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary { background: var(--fyt-primary); color: #fff; border-color: var(--fyt-primary-dark); box-shadow: 0 4px 0 var(--fyt-primary-dark); }
+  .btn-row { display: flex; gap: 12px; }
+  .btn-outline { flex: 1; background: var(--fyt-surface); color: var(--fyt-primary); border-color: var(--fyt-primary); padding: 12px 0; font-size: 14.5px; }
+  /* 为什么有这一页 */
+  .why {
+    background: var(--fyt-surface); border: 2px solid var(--fyt-border-strong);
+    border-radius: 14px; padding: 16px;
+  }
+  .why-title { display: flex; align-items: center; gap: 8px; font-weight: 900; font-size: 14.5px; margin-bottom: 8px; }
+  .why-shield {
+    width: 22px; height: 22px; border-radius: 50%; background: var(--fyt-primary);
+    color: #fff; font-size: 12px; display: flex; align-items: center; justify-content: center;
+  }
+  .why p { color: var(--fyt-text-secondary); font-size: 12.5px; line-height: 1.8; }
+  .fallback { color: var(--fyt-text-secondary); font-size: 12px; line-height: 1.7; text-align: center; }
+  footer { text-align: center; color: var(--fyt-text-secondary); font-size: 11px; padding: 18px 0 26px; }
+  /* toast */
+  .toast {
+    position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+    background: rgba(43, 43, 51, 0.92); color: #fff; padding: 10px 22px;
+    border-radius: 999px; font-size: 13.5px; display: none; z-index: 9;
+  }
+</style>
+</head>
+<body>
+  <div class="hero">
+    <div class="hero-check">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 12.5 9.5 18 20 6.5" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h1>口令已复制</h1>
+    <p>打开淘宝 / 抖音 App 即自动识别下单</p>
+  </div>
+
+  <div class="main">
+    <div class="tkl-card">
+      <div class="tkl-head"><b>淘口令</b><span id="clip-state">复制中…</span></div>
+      <div class="tkl-code" id="tkl-code">加载中…</div>
+      <div class="tkl-goods" id="goods-line" style="display:none"></div>
+    </div>
+
+    <div class="auto-tip">⏱ <span id="auto-count">3</span> 秒后自动尝试拉起淘宝 · 失败也不影响口令使用</div>
+
+    <button class="btn btn-primary" id="btn-open-tb">立即打开淘宝 App</button>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="btn-open-dy">打开抖音搜索</button>
+      <button class="btn btn-outline" id="btn-recopy">重新复制口令</button>
+    </div>
+
+    <div class="why">
+      <div class="why-title"><span class="why-shield">安</span>为什么有这一页？</div>
+      <p>本页仅做口令落地与剪贴板写入，不嵌第三方页面、不涉账号数据，规避外链封禁风险（决策 #14）。域名与小程序业务域名已在微信后台完成校验备案。</p>
+    </div>
+
+    <div class="fallback">没跳转？口令已在剪贴板，打开淘宝搜索框粘贴即可 · 返佣以订单回调确认为准</div>
+  </div>
+
+  <footer>FYT360 · 真香折 H5 口令页 · 苏ICP备2026XXXXXXX号-1</footer>
+  <div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var qs = new URLSearchParams(location.search);
+  var tkl = qs.get('tkl') || '';
+  var title = qs.get('title') || '';
+  var price = qs.get('price') || '';
+  var rebate = qs.get('rebate') || '';
+
+  var codeEl = document.getElementById('tkl-code');
+  var stateEl = document.getElementById('clip-state');
+  var toastEl = document.getElementById('toast');
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.style.display = 'block';
+    setTimeout(function () { toastEl.style.display = 'none'; }, 2200);
+  }
+
+  // 剪贴板写入：优先 async API，降级 execCommand（web-view 内兼容）
+  function copyTkl(done) {
+    function ok() { stateEl.textContent = '已写入剪贴板'; toast('口令已复制'); if (done) done(true); }
+    function fail() { stateEl.textContent = '点击「重新复制口令」'; if (done) done(false); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(tkl).then(ok, function () { legacy(); });
+    } else legacy();
+    function legacy() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = tkl; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        var ok2 = document.execCommand('copy');
+        document.body.removeChild(ta);
+        ok2 ? ok() : fail();
+      } catch (e) { fail(); }
+    }
+  }
+
+  // 渲染
+  if (tkl) {
+    codeEl.textContent = tkl;
+    copyTkl();
+  } else {
+    codeEl.textContent = '口令参数缺失，请返回商品页重试';
+    stateEl.textContent = '';
+  }
+  var goodsLine = document.getElementById('goods-line');
+  var parts = [];
+  if (title) parts.push('对应商品：' + title);
+  if (price) parts.push('券后 ¥' + price);
+  if (rebate) parts.push('自购返 ' + rebate + ' 元宝，直推上级另得现金佣金');
+  if (parts.length) {
+    goodsLine.textContent = parts.join(' · ');
+    goodsLine.style.display = 'block';
+  }
+
+  // 拉起尝试：失败静默（口令已在剪贴板，不影响使用）
+  function openTaobao() { location.href = 'taobao://'; }
+  function openDouyin() { location.href = 'snssdk12313://search/trending?keyword=' + encodeURIComponent(tkl || title); }
+
+  // 3 秒倒计时自动尝试
+  var left = 3;
+  var countEl = document.getElementById('auto-count');
+  var timer = setInterval(function () {
+    left -= 1;
+    if (left <= 0) { clearInterval(timer); countEl.textContent = '0'; openTaobao(); }
+    else countEl.textContent = String(left);
+  }, 1000);
+
+  document.getElementById('btn-open-tb').addEventListener('click', openTaobao);
+  document.getElementById('btn-open-dy').addEventListener('click', openDouyin);
+  document.getElementById('btn-recopy').addEventListener('click', function () { if (tkl) copyTkl(); else toast('口令参数缺失'); });
+})();
+</script>
+</body>
+</html>

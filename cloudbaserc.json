@@ -1,0 +1,17 @@
+{
+  "envId": "{{env.TCB_ENV}}",
+  "framework": {
+    "name": "fyt360",
+    "plugins": [
+      {
+        "use": "@cloudbase/framework-plugin-container",
+        "inputs": {
+          "serviceName": "fyt360-api",
+          "dockerfile": "server/Dockerfile",
+          "cpu": 1,
+          "mem": 2
+        }
+      }
+    ]
+  }
+}

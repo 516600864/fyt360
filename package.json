@@ -1,0 +1,32 @@
+{
+  "name": "fyt360",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FYT360 · 吃喝玩乐购 一站全变现 · 开源一站式全域流量变现 SaaS",
+  "workspaces": [
+    "apps/*",
+    "server"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "build:admin": "npm run build -w apps/admin",
+    "build:h5": "npm run build -w apps/h5",
+    "build:mini": "npm run build:mp-weixin -w apps/mini",
+    "migrate": "node deploy/scripts/migrate.mjs",
+    "seed": "node deploy/scripts/seed.mjs",
+    "deploy": "node deploy/scripts/deploy.mjs",
+    "verify:local": "node deploy/scripts/verify-local.mjs",
+    "verify:api": "node deploy/scripts/verify-api.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@cloudbase/manager-node": "^5.8.8",
+    "@types/bcryptjs": "^2.4.6",
+    "embedded-postgres": "^18.4.0-beta.17"
+  },
+  "dependencies": {
+    "qrcode-generator": "^2.0.4"
+  }
+}

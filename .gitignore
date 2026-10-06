@@ -1,0 +1,26 @@
+# 环境与密钥（.env.example 除外，全部排除）
+.env*
+!.env.example
+# 任何私钥/证书文件兜底（防误拷 apiclient_key.pem 等）
+*.pem
+*.p12
+*.pfx
+
+# 工作记忆与内部笔记（本地 AI 协作数据，不入公开仓库）
+.workbuddy/
+
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+unpackage/
+apps/mini/dist/
+
+# 本地验证用嵌入式 PG 数据目录
+deploy/.pgdata-*/
+
+# 日志与系统文件
+*.log
+.DS_Store
+Thumbs.db
