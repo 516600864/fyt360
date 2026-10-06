@@ -122,8 +122,8 @@ curl -s https://<域名>/healthz
 ```
 <img width="2880" height="5026" alt="admin-52-站点凭据开通向导" src="https://github.com/user-attachments/assets/c10ff55c-4205-4c04-88c1-748d1dd258fe" />
 <img width="2880" height="1547" alt="20e505e4-5f66-4e22-b34c-2ee917160b7a" src="https://github.com/user-attachments/assets/0d3f222f-fd00-4e07-ae23-d97500fa2029" />
-<img width="1080" height="7454" alt="942433334ca2684741dcd0cdcbf4da79" src="https://github.com/user-attachments/assets/af90d995-0696-4493-8a78-11584049891d" />
-<img width="1080" height="7454" alt="143796a9f55255fc6f596b9b0ca9124b" src="https://github.com/user-attachments/assets/7d701b32-6cbd-4219-a322-0ebbba357cb9" />
+<img width="33%" height="7454" alt="942433334ca2684741dcd0cdcbf4da79" src="https://github.com/user-attachments/assets/af90d995-0696-4493-8a78-11584049891d" />
+<img width="33%" height="7454" alt="143796a9f55255fc6f596b9b0ca9124b" src="https://github.com/user-attachments/assets/7d701b32-6cbd-4219-a322-0ebbba357cb9" />
 <img width="1080" height="7913" alt="5b65a2b722e602695b3d57f507217290" src="https://github.com/user-attachments/assets/b756eccf-3f21-46d0-933d-10b293ae34cd" />
 
 
