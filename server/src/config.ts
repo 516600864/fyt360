@@ -38,6 +38,5 @@ export const config = {
   tcbApiKey: process.env.TCB_API_KEY?.trim() ?? '',
   useGateway: !isRealDatabaseUrl(process.env.DATABASE_URL) && hasGatewayKey,
   adminInitPassword: process.env.ADMIN_INIT_PASSWORD ?? '',
-  llmAgentId: process.env.LLM_AGENT_ID ?? '',
   port: Number(process.env.PORT ?? 9000),
 } as const;

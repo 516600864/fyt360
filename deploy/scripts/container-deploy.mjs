@@ -41,7 +41,6 @@ const res = await app.cloudrun.deploy({
       JWT_SECRET: get('JWT_SECRET'),
       // SHARED 租户 PG 无 TCP 连接串，走 exec-pgsql HTTP 网关（service_role）
       TCB_API_KEY: get('TCB_API_KEY') || '',
-      LLM_AGENT_ID: get('LLM_AGENT_ID') || '',
       // 云存储上传通道（装修素材：轮播图/底部菜单图标）
       TCB_SECRET_ID: get('TCB_SECRET_ID') || '',
       TCB_SECRET_KEY: get('TCB_SECRET_KEY') || '',
