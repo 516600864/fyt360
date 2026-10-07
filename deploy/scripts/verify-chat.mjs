@@ -4,9 +4,10 @@
  * 覆盖：
  *   ① 迁移 043 结构级证据（chat_message 9 列 + user_site 索引）
  *   ② 鉴权：匿名 /boot /sse /history 一律 401
- *   ③ /boot：chips 来自 brand_action_cfg（enabled）、badges 动态计数、welcome/suggests
+ *   ③ /boot：chips 来自 brand_action_cfg（enabled）、badges 动态计数、site_name（顶部胶囊源）、welcome/suggests
  *   ④ L1 chips 直达：POST /sse chip → service_card（0 token，走 brand_action_cfg 真服务）
- *   ⑤ L0 粘贴解析：jd 商品 URL → parse_card（真转链）
+ *   ⑤ L0 粘贴解析（实测契约 2026-10-07 探针锁定）：jd 3.cn 短链整链透传 type=3 → parse_card 真转链；
+ *      item.jd.com 数字 sku 上游 -200 → 引导文案；tb 淘口令整段文案透传 item_id → parse_card 带口令
  *   ⑥ L2 hy3 意图：自由文本搜券 → intent + goods_card（佣金×等级 = rebate，无等级则 null）
  *   ⑦ 限流：当日第 51 条 → CHAT_QUOTA_EXCEEDED
  *   ⑧ 历史：GET 游标分页 + DELETE 清空 + 落库行数断言
@@ -141,6 +142,8 @@ section('3 /boot：chips 真源 + 动态徽章');
   ok(typeof d.badges?.rights === 'number', `徽章 rights=${d.badges?.rights}（fasttype 目录计数）`);
   ok(d.badges?.platforms === 4, '徽章 platforms=4');
   ok(!!d.welcome && Array.isArray(d.suggests), `welcome+suggests=${d.suggests?.length} 条`);
+  const siteName = await db(`SELECT name FROM site WHERE site_id::text IN ($1)`, [SITE]);
+  ok(d.site_name === siteName[0]?.name && !!d.site_name, `site_name=${d.site_name}（站点真实名，顶部胶囊显示源）`);
   const brandCodes = await db(`SELECT brand_code FROM brand_action_cfg WHERE enabled = TRUE`);
   const valid = new Set(brandCodes.map((b) => b.brand_code));
   ok(d.chips.every((c) => valid.has(c.brand_code)), 'chips 全部命中 brand_action_cfg（禁猜白名单）');
@@ -163,13 +166,29 @@ section('4 L1：chip 直达 service_card（0 token）');
 }
 
 // ══ ⑤ L0 粘贴解析 ══
-section('5 L0：链接识别能力边界（实测契约锁定）');
+section('5 L0：链接识别（实测契约 2026-10-07 探针锁定）');
 {
-  // jd URL：L0 检出但上游不支持数字 sku 转链（materialId 不合规，探针实测）→ 锁定「引导文案」契约
+  // jd item.jd.com：数字 sku 上游 -200 materialId 不合规（探针实测）→ 锁定「引导文案」契约
   const sjd = await sse('/api/chat/sse', TOKEN, { message: '看看这个 https://item.jd.com/100012043978.html', session_id: 'e2e-l0-jd' });
   const jdTip = sjd.events.find((e) => e.ev === 'text_delta');
-  ok(!!jdTip && /京东/.test(jdTip.j?.t ?? ''), 'jd URL → 引导文案（能力边界，不假转链）');
-  ok(!sjd.events.some((e) => e.ev === 'error'), 'jd URL 不产生 error 事件');
+  ok(!!jdTip && /京东/.test(jdTip.j?.t ?? ''), 'jd item.jd.com 数字 sku → 引导文案（能力边界，不假转链）');
+  ok(!sjd.events.some((e) => e.ev === 'error'), 'jd item.jd.com 不产生 error 事件');
+  // jd 3.cn 短链：整链透传 goods_id + type=3（实测不带尾部口令码也成功）→ parse_card 真转链
+  const s3cn = await sse('/api/chat/sse', TOKEN, {
+    message: '【京东】https://3.cn/36c-Q2K5?jkl=@NElVK5AACn@ MF3390 「四川特产红油麻辣榨菜豇豆下饭菜」点击链接直接打开 或者复制文案打开京东',
+    session_id: 'e2e-l0-jd3cn',
+  });
+  const jdCard = s3cn.events.find((e) => e.ev === 'card' && e.j?.kind === 'parse_card');
+  ok(!!jdCard && jdCard.j?.platform === 'jd', 'jd 3.cn 短链 → parse_card（真转链）');
+  ok(/u\.jd\.com/.test(jdCard?.j?.link?.url ?? ''), `jd 短链=${(jdCard?.j?.link?.url ?? '').slice(0, 44)}`);
+  // tb 淘口令：整段文案透传 item_id（实测 2026-10-07 探针）→ parse_card 带淘口令/券链
+  const stb = await sse('/api/chat/sse', TOKEN, {
+    message: '【淘宝】大促价保 https://e.tb.cn/h.8A9mfwDJzk7zDmF?tk=5VxjTKEnWAn MF937 「【国补15%】机械革命 星耀14 酷睿Ultra X7 358H 轻至1KG 薄至14.9mm 学生商务轻薄笔记本电脑官方旗舰店」 点击链接直接打开 或者 淘宝搜索直接打开',
+    session_id: 'e2e-l0-tb',
+  });
+  const tbCard = stb.events.find((e) => e.ev === 'card' && e.j?.kind === 'parse_card');
+  ok(!!tbCard && tbCard.j?.platform === 'tb', 'tb 淘口令文案 → parse_card（真转链）');
+  ok(!!(tbCard?.j?.link?.tkl || tbCard?.j?.link?.url), `tb 口令=${String(tbCard?.j?.link?.tkl ?? '').slice(0, 30) || '(取券链)'}…`);
 }
 
 // ══ ⑥ L2 hy3 意图 ══

@@ -2,8 +2,10 @@
 //
 // 分层管线（成本核心）：
 //   L0 粘贴解析  输入含商品链接/口令 → 纯正则提取参数 → 直接转链        0 token
-//                ⛔ 实测边界：tb(item_id)/pdd(goods_sign)/vip(数字id) 可直转；
-//                jd 仅认蚂蚁加密 goods_id，数字 skuId 无反查端点 → jd URL 给引导文案
+//                实测契约（2026-10-07 探针，D先生 实调锁定）：
+//                  jd 仅 3.cn 短链整链透传（goods_id=短链 & type=3，响应带 we_app_info）；
+//                  item.jd.com 数字 sku 上游 -200 materialId 不合规且无反查端点 → 引导文案；
+//                  tb item_id 接受整段口令文案（含【淘宝】前缀照转不误）；pdd/vip 同前。
 //   L1 快捷直达  前端 chips/推荐问题点击带 chip 元数据 → 直接 service-card 0 token
 //   L2 LLM 意图  自由文本 → hy3 输出严格 JSON 意图 → 服务端白名单执行    1 次模型调用
 //   L3 兜底      L2 解析失败/意图不明 → 静态推荐问题引导                 0（不重试）
@@ -113,14 +115,22 @@ interface ParsedRef { platform: string; params: Record<string, string> }
 
 function parseRef(text: string): ParsedRef | null {
   const t = text.trim();
-  // jd：item.jd.com/100012345678.html 优先；无 URL 时须有「jd/京东」提示 + 11~15 位纯数字 id
-  //   （纯数字裸匹配必须有品类提示词护航，否则会误伤淘口令/验证码类串）
-  let m = t.match(/item\.jd\.com\/(\d+)\.html/);
-  if (!m && /(jd\.com|京东)/i.test(t)) m = t.match(/\b(\d{11,15})\b/);
-  if (m) return { platform: 'jd', params: { goods_id: m[1], type: '1' } };
-  // tb/tm：item.taobao.com/item?id= / detail.tmall.com/item?id=
+  // jd：仅 3.cn 短链可整链透传（type=3，实测 2026-10-07：不带尾部口令码也成功）
+  let m = t.match(/https?:\/\/3\.cn\/[^\s「」『』]+/i);
+  if (m) return { platform: 'jd', params: { goods_id: m[0], type: '3' } };
+  // jd 数字 sku：仅在有「jd/京东」提示词护航时匹配（防误伤淘口令/验证码类串），
+  //   上游 -200 materialId 不合规 → L0 段按 type!=3 给引导文案
+  if (/(jd\.com|京东)/i.test(t)) {
+    const d = t.match(/\b(\d{11,15})\b/);
+    if (d) return { platform: 'jd', params: { goods_id: d[1], type: '1' } };
+  }
+  // tb：item.taobao/detail.tmall 数字 id 优先；淘口令/短链文案 → 整段透传
+  //   （实测 2026-10-07：item_id 接受完整口令文案，含【淘宝】前缀与「」商品名照转不误）
   m = t.match(/(?:item\.taobao|detail\.tmall)\.com\/item[^#]*?\?id=(\d+)/);
   if (m) return { platform: 'tb', params: { item_id: m[1] } };
+  if (/(e\.tb\.cn|m\.tb\.cn|taobao\.com|tmall\.com)/i.test(t) || /[￥¥][^￥¥]{5,}[￥¥]/.test(t)) {
+    return { platform: 'tb', params: { item_id: t } };
+  }
   // pdd：goods_sign 在 query（mobile.yangkeduo.com/goods.html?goods_sign=XXXX）
   m = t.match(/goods_sign=([A-Za-z0-9_-]{8,})/);
   if (m) return { platform: 'pdd', params: { goods_sign: m[1] } };
@@ -130,15 +140,13 @@ function parseRef(text: string): ParsedRef | null {
   return null;
 }
 
-/** 转链执行（复用 link.ts 契约函数，禁重复实现） */
-async function doConvert(
-  platform: string, params: Record<string, string>, siteId: string, userId: number,
-): Promise<LinkResult> {
+/** 转链执行（复用 link.ts 契约：白名单收集 + 必填校验 + tb get_tkl/title 加工，禁重复实现） */
+async function doConvert(platform: string, query: Record<string, string>, userId: number): Promise<LinkResult> {
   const cfg = await resolveHjkConfig(undefined);
-  const p = { ...params };
-  if (userId > 0) injectPromoter(platform, p, userId);
-  if (platform === 'jd' && userId <= 0) p.positionid = '1';
-  const { payload } = await hjkCall(`${platform}/getunionurl`, p, cfg.apikey);
+  const params = buildLinkParams(platform, query);
+  if (userId > 0) injectPromoter(platform, params, userId);
+  else if (platform === 'jd') params.positionid = '1';
+  const { payload } = await hjkCall(`${platform}/getunionurl`, params, cfg.apikey);
   return extractLink(platform, payload);
 }
 
@@ -194,7 +202,7 @@ interface GoodsCardItem {
 }
 
 async function toolSearchGoods(
-  res: Response, args: Record<string, unknown>, siteId: string, userId: number,
+  res: Response, args: Record<string, unknown>, userId: number,
 ): Promise<{ kind: string; content: string; meta: unknown }> {
   const platform = String(args.platform ?? 'jd');
   const keyword = String(args.keyword ?? '').trim().slice(0, 40);
@@ -231,7 +239,7 @@ async function toolSearchGoods(
       : platform === 'tb' ? { item_id: first.id }
       : platform === 'pdd' ? { goods_sign: String((items[0] as Record<string, unknown>).goods_sign ?? '') }
       : { goods_id: first.id, type: '1' };
-    const link = await doConvert(platform, firstParams, siteId, userId);
+    const link = await doConvert(platform, firstParams, userId);
     Object.assign(first, link);
   } catch { /* 转链失败不阻塞卡片展示，前端按钮降级为重试 */ }
 
@@ -273,11 +281,11 @@ async function toolGotoService(
 }
 
 async function toolConvertLink(
-  res: Response, args: Record<string, unknown>, siteId: string, userId: number, parsed: ParsedRef | null,
+  res: Response, args: Record<string, unknown>, userId: number, parsed: ParsedRef | null,
 ): Promise<{ kind: string; content: string; meta: unknown }> {
   const ref = parsed ?? parseRef(String(args.ref ?? ''));
   if (!ref) throw new Error('CANNOT_PARSE');
-  const link = await doConvert(ref.platform, ref.params, siteId, userId);
+  const link = await doConvert(ref.platform, ref.params, userId);
   sseWrite(res, 'intent', { tool: 'convert_link', platform: ref.platform, layer: parsed ? 'L0' : 'L2' });
   sseWrite(res, 'card', { kind: 'parse_card', platform: ref.platform, link });
   return { kind: 'parse_card', content: `已转链（${ref.platform}）`, meta: { platform: ref.platform } };
@@ -306,10 +314,16 @@ chatRouter.get('/boot', requireUser, async (req: Request, res: Response) => {
     const ft = await fetchFasttype((await resolveHjkConfig(undefined)).apikey);
     if (ft.ok) rightsCnt = ft.data.length;
   } catch { /* 权益目录不可用不阻塞 boot */ }
+  // 站点名（顶部胶囊显示源；boot 此前不返回导致胶囊空白，2026-10-07 修复）
+  const { rows: siteRow } = await pool.query(
+    `SELECT name FROM site WHERE site_id = $1::uuid LIMIT 1`,
+    [siteId],
+  );
 
   res.json({
     ok: true,
     data: {
+      site_name: siteRow[0]?.name ?? '',
       chips: chips.map((r) => ({
         track: String(r.mode || 'act'), name: String(r.name), brand_code: String(r.brand_code),
         cat_name: String(r.cat_name), icon: r.icon ? String(r.icon) : null,
@@ -338,7 +352,7 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
   if (!message && !chip) throw new HttpError(400, '消息不能为空', 'EMPTY_MESSAGE');
 
   res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
+    'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-store',
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no', // 容器/反代禁缓冲，SSE 即时下发
@@ -376,16 +390,15 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
     if (!result && message) {
       const parsed = parseRef(message);
       if (parsed) {
-        // ⛔ 实测边界（2026-10-07 探针）：jd getunionurl 只认蚂蚁加密 goods_id，
-        //   item.jd.com 的数字 skuId 转链报「materialId不合规」且无反查端点——jd URL 不承诺转链，给引导。
-        //   tb（item_id 数字）/ pdd（goods_sign）/ vip（goods_id 数字）均实测可直转。
-        if (parsed.platform === 'jd') {
-          const tip = '京东链接暂时转不了~ 把商品名告诉我，我帮你搜同款券';
+        // ⛔ 实测边界（2026-10-07 探针）：jd item.jd.com 数字 sku 上游 -200 materialId
+        //   不合规且无反查端点——只有 3.cn 短链（type=3）可转，其余给引导文案不假转链。
+        if (parsed.platform === 'jd' && parsed.params.type !== '3') {
+          const tip = '京东商品页链接暂时转不了~ 复制 3.cn 口令短链发我，或告诉我商品名帮你搜同款券';
           sseWrite(res, 'text_delta', { t: tip });
           result = { kind: 'text', content: tip, meta: { layer: 'L0-jd-limit' } };
         } else {
           try {
-            result = await toolConvertLink(res, {}, siteId, userId, parsed);
+            result = await toolConvertLink(res, {}, userId, parsed);
           } catch {
             const tip = '认出是商品链接了，但转链没成功——请复制完整链接（含商品页地址）再试一次';
             sseWrite(res, 'text_delta', { t: tip });
@@ -412,7 +425,7 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
         result = { kind: 'text', content: fallback, meta: { layer: 'L3' } };
       } else {
         try {
-          if (intent.tool === 'search_goods') result = await toolSearchGoods(res, intent.args, siteId, userId);
+          if (intent.tool === 'search_goods') result = await toolSearchGoods(res, intent.args, userId);
           else if (intent.tool === 'goto_service') {
             try { result = await toolGotoService(res, intent.args); }
             catch {
@@ -421,7 +434,7 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
               result = { kind: 'text', content: tip, meta: { layer: 'L3' } };
             }
           } else if (intent.tool === 'convert_link') {
-            try { result = await toolConvertLink(res, intent.args, siteId, userId, null); }
+            try { result = await toolConvertLink(res, intent.args, userId, null); }
             catch {
               const tip = '转链没成功——请复制完整商品链接（含商品页地址）再试一次';
               sseWrite(res, 'text_delta', { t: tip });

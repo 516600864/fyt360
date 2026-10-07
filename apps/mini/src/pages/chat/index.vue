@@ -2,7 +2,7 @@
   <view class="chat-page">
     <!-- 头部品牌区（设计稿 29：玫红延伸条 + 站点名胶囊） -->
     <view class="chat-hero">
-      <view class="hero-pill"><text class="hero-pill-txt">{{ siteName }}</text></view>
+      <view v-if="siteName" class="hero-pill"><text class="hero-pill-txt">{{ siteName }}</text></view>
     </view>
 
     <!-- 消息流 / 空态 -->
@@ -24,11 +24,14 @@
 
         <text class="e-sec-title">我能帮你做什么</text>
         <view class="e-matrix">
-          <view v-for="m in MATRIX" :key="m.title" class="e-cell" :class="m.tone" @tap="send(m.q)">
-            <text class="e-cell-title">{{ m.title }}</text>
-            <text class="e-cell-sub">{{ m.sub }}</text>
-            <view class="e-cell-dots">
-              <text v-for="d in m.brands" :key="d" class="e-dot">{{ d }}</text>
+          <view v-for="m in MATRIX" :key="m.title" class="e-cell">
+            <!-- 视觉卡放内层：真机 WXSS 对「百分比宽+水平padding」按 content-box 计会溢出（2026-10-07 实测） -->
+            <view class="e-card" :class="m.tone" @tap="send(m.q)">
+              <text class="e-cell-title">{{ m.title }}</text>
+              <text class="e-cell-sub">{{ m.sub }}</text>
+              <view class="e-cell-dots">
+                <text v-for="d in m.brands" :key="d" class="e-dot">{{ d }}</text>
+              </view>
             </view>
           </view>
         </view>
@@ -236,12 +239,44 @@ export default {
       });
       this.currentTask = task;
     },
+    /**
+     * SSE 分片解码：流式 UTF-8。
+     * ⛔ 不能用 String.fromCharCode 逐字节转——中文多字节序列会被按 Latin-1 拆碎（2026-10-07 真机乱码根因）；
+     * 且多字节字符可能被切在两个 chunk 边界，不完整序列须留到下一片拼齐。
+     */
     decode(data) {
-      try {
-        if (typeof data === 'string') return data;
-        const ab = data instanceof ArrayBuffer ? data : data.buffer;
-        return String.fromCharCode.apply(null, new Uint8Array(ab));
-      } catch { return ''; }
+      if (typeof data === 'string') return data;
+      const ab = data instanceof ArrayBuffer ? data : data.buffer;
+      if (!ab) return '';
+      if (!this._pend) this._pend = []; // 非响应式字节缓冲
+      const pend = this._pend;
+      const arr = new Uint8Array(ab);
+      for (let k = 0; k < arr.length; k++) pend.push(arr[k]);
+      let out = '';
+      let i = 0;
+      const n = pend.length;
+      while (i < n) {
+        const b = pend[i];
+        let len = 0;
+        if (b < 0x80) len = 1;
+        else if (b >= 0xc2 && b < 0xe0) len = 2;
+        else if (b >= 0xe0 && b < 0xf0) len = 3;
+        else if (b >= 0xf0 && b < 0xf5) len = 4;
+        else { i += 1; continue; } // 非法首字节，跳过
+        if (i + len > n) break;    // 序列不完整 → 留给下一片
+        let cp = len === 1 ? b : b & (0xff >> (len + 1));
+        let bad = false;
+        for (let j = 1; j < len; j++) {
+          const cb = pend[i + j];
+          if ((cb & 0xc0) !== 0x80) { bad = true; break; }
+          cp = (cp << 6) | (cb & 0x3f);
+        }
+        if (bad) { i += 1; continue; }
+        out += String.fromCodePoint(cp);
+        i += len;
+      }
+      if (i > 0) pend.splice(0, i);
+      return out;
     },
     handleSseBlock(block) {
       let ev = 'message';
@@ -256,8 +291,8 @@ export default {
       if (ev === 'intent') { /* 意图只做埋点展示，卡片随后到 */ }
       else if (ev === 'text_delta') this.pushAssistantText(j.t ?? '');
       else if (ev === 'card') this.pushCard(j);
-      else if (ev === 'done') { this.sending = false; this.sessionId = j.session_id ?? this.sessionId; }
-      else if (ev === 'error') { this.sending = false; this.pushAssistantText(j.message ?? '出错了，稍后再试'); }
+      else if (ev === 'done') { this.sending = false; this._pend = []; this.sessionId = j.session_id ?? this.sessionId; }
+      else if (ev === 'error') { this.sending = false; this._pend = []; this.pushAssistantText(j.message ?? '出错了，稍后再试'); }
     },
     pushAssistantText(full) {
       // 找正在生成的末条 assistant text 续写；没有则新开 + 打字机
@@ -407,8 +442,11 @@ export default {
 .e-badge-txt { color: var(--fyt-primary, #e8336d); font-size: 22rpx; font-weight: 800; }
 .e-sec-title { align-self: flex-start; font-size: 30rpx; font-weight: 900; color: var(--fyt-text, #2b2b33);
   margin: 36rpx 0 18rpx; }
-.e-matrix { display: flex; flex-wrap: wrap; gap: 20rpx; width: 100%; }
-.e-cell { width: calc(50% - 10rpx); border-radius: var(--fyt-radius-lg, 24rpx); padding: 24rpx;
+.e-matrix { display: flex; flex-wrap: wrap; margin: 0 -10rpx; width: calc(100% + 20rpx); }
+/* 盒模型避坑：外层格子只定 50% 宽、零水平 padding/border；卡片视觉（padding+border+阴影）
+   全放内层 .e-card —— 真机按 content-box 计算时也不会溢出（mini-06 宫格同思路） */
+.e-cell { width: 50%; display: flex; flex-direction: column; padding: 0 0 20rpx 0; }
+.e-card { flex: 1; margin: 0 10rpx; border-radius: var(--fyt-radius-lg, 24rpx); padding: 24rpx;
   border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
   box-shadow: var(--fyt-shadow-pop); display: flex; flex-direction: column; gap: 8rpx; box-sizing: border-box; }
 .t-pink { background: var(--fyt-primary, #e8336d); }
