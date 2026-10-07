@@ -147,6 +147,8 @@ curl -s https://<域名>/healthz
 ## 千二费率的微信商户
 可以去https://www.51skill.com/portal/api/wechat-sub-merchant-managed 调用接口申请，几分钟即可搞定。
 
+## 演示站点https://mk.fyt360.cn/   账户：test 密码:12345678
+
 ## 开发铁律：上游调用与图标
 
 **第三方 API 调用**
