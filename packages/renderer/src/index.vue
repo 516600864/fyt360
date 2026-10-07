@@ -80,6 +80,8 @@
       <FCouponWall v-else-if="floor.type === 'coupon-wall'" v-bind="floor.props" @action="emitAction(floor, $event)" />
       <!-- invite-floor 邀请有礼 -->
       <FInviteFloor v-else-if="floor.type === 'invite-floor'" v-bind="floor.props" @action="emitAction(floor, $event)" />
+      <!-- ai-chat-entry AI 助手入口（第 28 种，决策 #46/#47）：float/banner/block 三形态 -->
+      <FAiChatEntry v-else-if="floor.type === 'ai-chat-entry'" v-bind="floor.props" />
       <!-- 未实现组件兜底（23 组件已全实现，此分支仅防御未知 type） -->
       <view v-else class="floor-placeholder">
         <text>[{{ floor.type }}]</text>
@@ -123,6 +125,7 @@ import FSeckill from './components/f-seckill.vue';
 import FGroupBuyFloor from './components/f-group-buy-floor.vue';
 import FCouponWall from './components/f-coupon-wall.vue';
 import FInviteFloor from './components/f-invite-floor.vue';
+import FAiChatEntry from './components/f-ai-chat-entry.vue';
 
 /**
  * SchemaPage（渲染器入口，§6.1）：
@@ -133,7 +136,7 @@ import FInviteFloor from './components/f-invite-floor.vue';
  */
 export default {
   name: 'SchemaPage',
-  components: { FSwiper, FSearchBar, FNav, FCouponStrip, FBrandChips, FGoodsFeed, FNotice, FDivider, FRichText, FBlank, FIngotEntry, FMovieBox, FRedeemEntry, FFloor, FFloatBtn, FCategoryNav, FMemberCard, FBrandMatrix, FActivityFloor, FImageHotzone, FVideoFloor, FCountdown, FPopupModal, FSeckill, FGroupBuyFloor, FCouponWall, FInviteFloor },
+  components: { FSwiper, FSearchBar, FNav, FCouponStrip, FBrandChips, FGoodsFeed, FNotice, FDivider, FRichText, FBlank, FIngotEntry, FMovieBox, FRedeemEntry, FFloor, FFloatBtn, FCategoryNav, FMemberCard, FBrandMatrix, FActivityFloor, FImageHotzone, FVideoFloor, FCountdown, FPopupModal, FSeckill, FGroupBuyFloor, FCouponWall, FInviteFloor, FAiChatEntry },
   props: {
     /** page-v1 Schema 对象（{floors:[...]}）；兼容直接传 floors 数组；空则整页不渲染 */
     schema: { type: [Object, Array], default: null },

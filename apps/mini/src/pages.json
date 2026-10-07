@@ -33,6 +33,14 @@
       }
     },
     {
+      "path": "pages/chat/index",
+      "style": {
+        "navigationBarTitleText": "AI管家",
+        "navigationBarBackgroundColor": "#E8336D",
+        "navigationBarTextStyle": "white"
+      }
+    },
+    {
       "path": "pages/rights/index",
       "style": {
         "navigationBarTitleText": "会员权益",

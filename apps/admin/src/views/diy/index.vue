@@ -433,6 +433,36 @@
             <label class="f-label">距底部（rpx）</label>
             <el-input-number v-model="sel.props.bottom" :min="80" :max="600" :step="20" size="large" />
           </template>
+          <!-- ai-chat-entry AI 助手（决策 #46/#47：float/banner/block 三形态） -->
+          <template v-else-if="sel.type === 'ai-chat-entry'">
+            <label class="f-label">形态</label>
+            <el-radio-group v-model="sel.props.shape" size="large">
+              <el-radio-button value="float">悬浮球</el-radio-button>
+              <el-radio-button value="banner">横幅</el-radio-button>
+              <el-radio-button value="block">按钮块</el-radio-button>
+            </el-radio-group>
+            <label v-if="sel.props.shape === 'float'" class="f-label">悬浮位置（同页 float 最多 1 个）</label>
+            <el-select v-if="sel.props.shape === 'float'" v-model="sel.props.corner" size="large">
+              <el-option label="右下" value="br" />
+              <el-option label="左下" value="bl" />
+              <el-option label="右上" value="tr" />
+              <el-option label="左上" value="tl" />
+            </el-select>
+            <label v-if="sel.props.shape !== 'float'" class="f-label">主文案</label>
+            <el-input v-if="sel.props.shape !== 'float'" v-model="sel.props.title" size="large" />
+            <label v-if="sel.props.shape !== 'float'" class="f-label">副文案</label>
+            <el-input v-if="sel.props.shape !== 'float'" v-model="sel.props.note" size="large" />
+            <label v-if="sel.props.shape === 'float'" class="f-label">气泡文案（静态，随球显示）</label>
+            <el-input v-if="sel.props.shape === 'float'" v-model="sel.props.bubble" size="large" />
+            <label class="f-label">图标</label>
+            <el-select v-model="sel.props.icon" size="large">
+              <el-option label="机器人" value="robot" />
+              <el-option label="星光" value="sparkles" />
+              <el-option label="票券" value="ticket" />
+              <el-option label="魔法" value="magic" />
+            </el-select>
+            <div class="f-hint">点击一律进入 AI 管家对话页（mini-29），无需配置跳转</div>
+          </template>
           <!-- member-card 会员权益卡 -->
           <template v-else-if="sel.type === 'member-card'">
             <label class="f-label">标题</label>
@@ -782,9 +812,10 @@ const paletteGroups = [
     { label: '权益直达', type: 'redeem-entry', on: true },
     { label: '会员权益卡', type: 'member-card', on: true },
     { label: '邀请有礼', type: 'invite-floor', on: true },
+    { label: 'AI 助手', type: 'ai-chat-entry', on: true },
   ] },
 ];
-const LABELS = { 'search-bar': '搜索栏', swiper: '轮播图', nav: '金刚区', 'coupon-strip': '优惠券条', 'brand-chips': '品牌补贴', 'goods-feed': '商品流', notice: '公告栏', divider: '标题分隔', 'rich-text': '图文说明', blank: '间距', 'ingot-entry': '元宝入口', 'movie-box': '影票热映', 'redeem-entry': '权益直达', floor: '通用容器', 'float-btn': '悬浮按钮', 'category-nav': '分类导航', 'member-card': '会员权益卡', 'brand-matrix': '品牌宫格', 'activity-floor': '活动楼层', 'image-hotzone': '图片热区', 'video-floor': '视频楼层', countdown: '倒计时', 'popup-modal': '进页弹窗', seckill: '限时秒杀', 'group-buy-floor': '拼团楼层', 'coupon-wall': '券墙中心', 'invite-floor': '邀请有礼' };
+const LABELS = { 'search-bar': '搜索栏', swiper: '轮播图', nav: '金刚区', 'coupon-strip': '优惠券条', 'brand-chips': '品牌补贴', 'goods-feed': '商品流', notice: '公告栏', divider: '标题分隔', 'rich-text': '图文说明', blank: '间距', 'ingot-entry': '元宝入口', 'movie-box': '影票热映', 'redeem-entry': '权益直达', floor: '通用容器', 'float-btn': '悬浮按钮', 'category-nav': '分类导航', 'member-card': '会员权益卡', 'brand-matrix': '品牌宫格', 'activity-floor': '活动楼层', 'image-hotzone': '图片热区', 'video-floor': '视频楼层', countdown: '倒计时', 'popup-modal': '进页弹窗', seckill: '限时秒杀', 'group-buy-floor': '拼团楼层', 'coupon-wall': '券墙中心', 'invite-floor': '邀请有礼', 'ai-chat-entry': 'AI 助手' };
 const floorLabel = (t) => LABELS[t] ?? t;
 
 /* —— 默认模板（与 renderer default-home 同源精简）—— */
@@ -956,6 +987,7 @@ function addFloor(type, label) {
   else if (type === 'redeem-entry') Object.assign(base, { props: { title: '视频会员 1 抢', subtitle: '低至 5 折 · 元宝当钱花', emoji: '🎬', btn_text: '立即抢', cid: 0, brand_code: 'life_05' } });
   else if (type === 'floor') Object.assign(base, { props: { title: '区块标题', subtitle: '', text: '这里放说明文字。', bg: '', action: { type: 'none' } } });
   else if (type === 'float-btn') Object.assign(base, { props: { text: '去抢购', icon: '🔥', bottom: 180, action: { type: 'none' } } });
+  else if (type === 'ai-chat-entry') Object.assign(base, { props: { shape: 'block', corner: 'br', title: '有问题，问 AI 管家', note: '找券 · 转链 · 点餐 · 权益兑换', bubble: '帮你找券，一句话搞定~', icon: 'robot' } });
   else if (type === 'category-nav') Object.assign(base, { props: { items: [{ label: '全部', hot: true, action: { type: 'none' } }, { label: '点餐', action: { type: 'plugin-launch', value: 'dining_13' } }, { label: '影票', action: { type: 'plugin-launch', value: 'life_01' } }] } });
   else if (type === 'member-card') Object.assign(base, { props: { title: '会员权益中心', subtitle: '元宝当钱花 · 权益随心兑', level_text: '', btn_text: '立即查看', bg: '', action: { type: 'jump', target: 'page', value: '/pages/rights/index' } } });
   else if (type === 'brand-matrix') Object.assign(base, { props: { columns: 4, items: [{ name: '麦当劳', icon: '🍔', tag: '', action: { type: 'plugin-launch', value: 'dining_01' } }, { name: '星巴克', icon: '☕', tag: '', action: { type: 'plugin-launch', value: 'dining_02' } }, { name: '瑞幸', icon: '🥤', tag: '9.9', action: { type: 'plugin-launch', value: 'dining_05' } }, { name: '影票', icon: '🎬', tag: '', action: { type: 'plugin-launch', value: 'life_01' } }] } });
@@ -1406,6 +1438,7 @@ const emit = defineEmits(['regen-ai']);
 .props { width: 280px; flex-shrink: 0; }
 .prop-hint { font-size: 11px; color: #b0898f; margin-bottom: 10px; }
 .f-label { display: block; font-size: 12px; color: #8a6b75; font-weight: 600; margin: 10px 0 4px; }
+.f-hint { font-size: 12px; color: #b9b0a0; margin-top: 10px; line-height: 1.5; }
 .item-card { border: 1.5px solid #f0dfc8; border-radius: 10px; padding: 8px 10px; margin-top: 8px; }
 .item-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; color: #a31245; }
 .mini-del { border: none; background: none; color: #e8336d; cursor: pointer; font-size: 11px; }

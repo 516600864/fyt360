@@ -28,6 +28,7 @@ import { profileRouter } from './routes/profile.js';
 import { tradeRouter } from './routes/trade.js';
 import { memberRouter } from './routes/member.js';
 import { rightsRouter } from './routes/rights.js';
+import { chatRouter } from './routes/chat.js';
 import { checkinRouter } from './routes/checkin.js';
 import { favoriteRouter } from './routes/favorite.js'; // 决策#41 我的收藏 / 浏览足迹
 import { provisionRouter } from './routes/site-provision.js'; // 决策#43 屏52 凭据开通向导（4 组凭据，唯一做连通测试的是蚂蚁星球）
@@ -108,6 +109,7 @@ app.use('/api/admin/checkin', checkinAdminRouter); // 签到奖励梯度配置�
 app.use('/api/admin/hotwords', hotwordAdminRouter); // 07B 相关搜索热词表（032 search_hotword）
 app.use('/api/admin/account', accountAdminRouter); // 决策#37 账户设置：个人资料/我的操作日志/消息中心三源（033 admin_notification）
 app.use('/api/rights', rightsRouter); // M5 权益 C 端：fasttype 透传（品牌卡/档位）
+app.use('/api/chat', chatRouter); // mini-29 AI 助手（决策 #46/#47）：/boot /sse /history
 app.use('/api/media', mediaRouter); // GET /api/media/uploads/* 公开媒体代理
 app.use('/api', goodsRouter);
 

@@ -9,7 +9,7 @@ import { Ajv, type ErrorObject } from 'ajv';
 const IMPLEMENTED_FLOORS = [
   'swiper', 'search-bar', 'nav', 'coupon-strip', 'brand-chips', 'goods-feed',
   'notice', 'divider', 'rich-text', 'blank', 'ingot-entry', 'movie-box', 'redeem-entry',
-  'floor', 'float-btn', 'category-nav', 'member-card', 'brand-matrix', 'activity-floor', 'image-hotzone', 'video-floor', 'countdown', 'popup-modal', 'seckill', 'group-buy-floor', 'coupon-wall', 'invite-floor',
+  'floor', 'float-btn', 'category-nav', 'member-card', 'brand-matrix', 'activity-floor', 'image-hotzone', 'video-floor', 'countdown', 'popup-modal', 'seckill', 'group-buy-floor', 'coupon-wall', 'invite-floor', 'ai-chat-entry',
 ] as const;
 
 const contract = {

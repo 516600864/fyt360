@@ -13,7 +13,8 @@ export const goodsRouter = Router();
 
 const PLATFORMS = new Set(['jd', 'tb', 'pdd', 'vip']);
 
-/** 各平台 goodslist 透传参数白名单（不含分页，分页单独映射） */
+/** 各平台 goodslist 透传参数白名单（不含分页，分页单独映射）；
+ *  buildListParams export：chat.ts search_goods 工具复用（分页/必填/白名单契约单点维护） */
 const LIST_PASS: Record<string, Set<string>> = {
   jd: new Set(['keyword', 'cid1', 'cid2', 'cid3', 'goods_ids', 'minprice', 'maxprice', 'mincommission', 'maxcommission', 'sortname', 'sort', 'ispg', 'iscoupon', 'ishot', 'owner', 'isunion']),
   tb: new Set(['keyword', 'tb_p', 'min_id', 'limitrate', 'is_tmall', 'is_coupon', 'is_shopping', 'startprice', 'endprice', 'sort']),
@@ -29,7 +30,8 @@ function clampInt(v: unknown, min: number, max: number, dflt: number): number {
   return Math.min(max, Math.max(min, Math.floor(n)));
 }
 
-function buildListParams(platform: string, query: Record<string, unknown>): Record<string, string | number | undefined> {
+/** 各平台列表参数构建（export：chat.ts search_goods 工具复用，分页/必填/白名单契约单点维护） */
+export function buildListParams(platform: string, query: Record<string, unknown>): Record<string, string | number | undefined> {
   const page = clampInt(query.page ?? query.pageindex, 1, 10_000, 1);
   const size = clampInt(query.size ?? query.pagesize, 1, 100, platform === 'vip' ? 20 : 10);
   const params: Record<string, string | number | undefined> = { keyword: query.keyword as string | undefined };

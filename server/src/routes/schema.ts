@@ -39,10 +39,18 @@ function checkPage(page: string): void {
 }
 
 /** 楼层树轻校验：数组、类型白名单、楼层 ≤30（与 page-validate IMPLEMENTED_FLOORS 同步维护） */
-const KNOWN_TYPES = ['swiper', 'search-bar', 'nav', 'coupon-strip', 'brand-chips', 'goods-feed', 'notice', 'divider', 'rich-text', 'blank', 'ingot-entry', 'movie-box', 'redeem-entry', 'floor', 'float-btn', 'category-nav', 'member-card', 'brand-matrix', 'activity-floor', 'image-hotzone', 'video-floor', 'countdown', 'popup-modal', 'seckill', 'group-buy-floor', 'coupon-wall', 'invite-floor'];
+const KNOWN_TYPES = ['swiper', 'search-bar', 'nav', 'coupon-strip', 'brand-chips', 'goods-feed', 'notice', 'divider', 'rich-text', 'blank', 'ingot-entry', 'movie-box', 'redeem-entry', 'floor', 'float-btn', 'category-nav', 'member-card', 'brand-matrix', 'activity-floor', 'image-hotzone', 'video-floor', 'countdown', 'popup-modal', 'seckill', 'group-buy-floor', 'coupon-wall', 'invite-floor', 'ai-chat-entry'];
 function checkFloors(floors: unknown): asserts floors is Array<{ type: string; [k: string]: unknown }> {
   if (!Array.isArray(floors)) throw new HttpError(400, 'floors 须为数组', 'BAD_FLOORS');
   if (floors.length > 30) throw new HttpError(400, '楼层超过上限 30', 'TOO_MANY_FLOORS');
+  // ai-chat-entry float 同页 ≤1（#46 §1.2：防悬浮球重叠；banner/block 不限）
+  const floatEntries = floors.filter(
+    (f) => (f as { type?: string; props?: { shape?: string } })?.type === 'ai-chat-entry'
+      && (f as { props?: { shape?: string } })?.props?.shape === 'float',
+  );
+  if (floatEntries.length > 1) {
+    throw new HttpError(400, '同页最多 1 个 AI 助手悬浮球（float），横幅/按钮块不限', 'TOO_MANY_AI_FLOAT');
+  }
   for (const f of floors) {
     if (!f || typeof f.type !== 'string' || !KNOWN_TYPES.includes(f.type)) {
       throw new HttpError(400, `未知楼层类型：${(f as { type?: unknown })?.type ?? '∅'}（已知：${KNOWN_TYPES.join('/')}）`, 'BAD_FLOOR_TYPE');

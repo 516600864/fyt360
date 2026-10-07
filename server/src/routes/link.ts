@@ -38,8 +38,10 @@ interface LinkResult {
   vipWxUrl?: string;
 }
 
-/** 各平台必填校验 + 白名单参数收集 */
-function buildLinkParams(platform: string, query: Record<string, unknown>): Record<string, string> {
+export { type LinkResult };
+
+/** 各平台必填校验 + 白名单参数收集（export：chat.ts convert_link 工具复用，禁重复实现契约） */
+export function buildLinkParams(platform: string, query: Record<string, unknown>): Record<string, string> {
   const params: Record<string, string> = {};
   const pass = LINK_PASS[platform];
   for (const [k, v] of Object.entries(query)) {
@@ -65,7 +67,7 @@ function buildLinkParams(platform: string, query: Record<string, unknown>): Reco
 }
 
 /** 推广位注入（仅登录态；user_id 为 BIGSERIAL 整型，各平台参数形态见文件头注释） */
-function injectPromoter(platform: string, params: Record<string, string>, userId: number): void {
+export function injectPromoter(platform: string, params: Record<string, string>, userId: number): void {
   const uid = String(userId);
   switch (platform) {
     case 'jd':
@@ -86,8 +88,8 @@ function injectPromoter(platform: string, params: Record<string, string>, userId
   }
 }
 
-/** 各平台响应差异吸收（实测结构，见文件头） */
-function extractLink(platform: string, payload: Record<string, unknown>): LinkResult {
+/** 各平台响应差异吸收（实测结构，见文件头；export：chat.ts 复用） */
+export function extractLink(platform: string, payload: Record<string, unknown>): LinkResult {
   const data = payload.data;
   switch (platform) {
     case 'jd': {
