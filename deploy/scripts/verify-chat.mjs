@@ -252,7 +252,7 @@ section('5b 服务直达：电影票 / 美团外卖 / 权益');
 // ══ ⑥ L2 hy3 意图 ══
 section('6 L2：hy3 JSON 意图 → search_goods 真数据');
 {
-  const s = await sse('/api/chat/sse', TOKEN, { message: '帮我找一杯咖啡豆', session_id: 'e2e-l2' });
+  const s = await sse('/api/chat/sse', TOKEN, { message: '帮我找无线蓝牙耳机', session_id: 'e2e-l2' });
   const card = s.events.find((e) => e.ev === 'card' && e.j?.kind === 'goods_card');
   ok(!!card, 'goods_card 事件到达');
   const items = card?.j?.items ?? [];
@@ -265,6 +265,15 @@ section('6 L2：hy3 JSON 意图 → search_goods 真数据');
     ok(items.every((x) => !!x.id && x.platform === card.j.items[0].platform), `每条可动态转链（id+platform ×${items.length}，老实现只预转首条 2/3 条空链接）`);
   }
   ok(s.events.some((e) => e.ev === 'intent' && e.j?.tool === 'search_goods'), 'intent.tool=search_goods');
+  // 搜索同款跨平台（2026-10-08 方案 A 钦定）：主卡后追加其余三平台各 1 条（形状断言，
+  //   上游 goodslist 有无货不赌；有则平台合法+非主平台+标题非空）
+  const sCross = s.events.find((e) => e.ev === 'card' && e.j?.kind === 'cross_list');
+  if (sCross) {
+    const cits = sCross.j?.items ?? [];
+    const mp = items[0]?.platform;
+    ok(cits.length > 0 && cits.every((x) => ['jd', 'tb', 'pdd', 'vip'].includes(x.platform) && x.platform !== mp && !!x.title),
+      `搜索同款跨平台卡 ${cits.length} 项（${cits.map((x) => x.platform).join('/')}）`);
+  }
 }
 
 // ══ ⑦ 限流 ══
@@ -298,6 +307,7 @@ section('8 历史：落库 + 分页 + 清空');
   ok(hParse?.meta?.goods !== undefined && Array.isArray(hParse.meta.cross), '历史 parse_card 带 goods/cross 全量（登机牌原样重建）');
   const hGoods = h1.body.data.items.find((x) => x.kind === 'goods_card');
   ok(Array.isArray(hGoods?.meta?.items) && hGoods.meta.items.length > 0 && !!hGoods.meta.items[0].title, '历史 goods_card 带 meta.items 全量（真标题重建）');
+  ok(Array.isArray(hGoods?.meta?.cross), '历史 goods_card 带 meta.cross（搜索同款历史回放，空=[]也须在）');
   // service_list/card 同锁（2026-10-08 第三次翻车：「领一张打车券」重进降级「找到 N 项服务」光秃文本——meta 只存了 {name,tracks}）
   const hSvc = h1.body.data.items.find((x) => x.kind === 'service_list' || x.kind === 'service_card');
   ok(Array.isArray(hSvc?.meta?.items) && hSvc.meta.items.length > 0 && !!hSvc.meta.items[0].name && !!hSvc.meta.items[0].track,

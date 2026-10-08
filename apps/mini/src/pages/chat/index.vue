@@ -1,5 +1,5 @@
 <template>
-  <view class="chat-page">
+  <view class="chat-page" :style="pageTheme">
     <!-- 消息流 / 空态 -->
     <scroll-view
       class="chat-body" scroll-y :scroll-top="scrollTop" scroll-with-animation
@@ -222,7 +222,7 @@ export default {
         const items = d.items ?? [];
         this.hasMoreHistory = d.hasMore ?? false;
         this.historyCursor = items.length ? Number(items[0].id) : 0;
-        this.msgs = items.reverse().map((it) => this.fromHistory(it));
+        this.msgs = items.reverse().flatMap((it) => this.fromHistory(it));
         this.scrollBottom();
       } catch { /* 历史失败从空态开始 */ }
     },
@@ -231,7 +231,7 @@ export default {
       if (!this.hasMoreHistory) { this.refreshing = false; return; }
       try {
         const d = await request(`/api/chat/history?before=${this.historyCursor}`);
-        const items = (d.items ?? []).reverse().map((it) => this.fromHistory(it));
+        const items = (d.items ?? []).reverse().flatMap((it) => this.fromHistory(it));
         this.historyCursor = (d.items ?? []).length ? Number(d.items[0].id) : 0;
         this.hasMoreHistory = d.hasMore ?? false;
         this.msgs = [...items, ...this.msgs];
@@ -240,33 +240,45 @@ export default {
     },
     fromHistory(it) {
       const meta = it.meta ?? {};
+      // 统一返回数组：主卡可携带附属卡（同款跨平台 cross_list 嵌在主卡 meta.cross，
+      //   历史单行模型——服务端一次对话只落一条 assistant 行）
+      const expired = (c) => [{ role: 'assistant', kind: 'text', content: `${it.content}（${c}）` }];
       // goods_card：新历史 meta.items 全量回放（真标题/图/价，29C 登机牌样式）；
       //   旧历史只有 refs id 列表 → 诚实降级文本（不再重建「搜…命中3件」假标题空图卡）
       if (it.kind === 'goods_card') {
-        if (Array.isArray(meta.items) && meta.items.length) return { role: 'assistant', kind: 'goods_card', items: meta.items };
-        return { role: 'assistant', kind: 'text', content: `${it.content}（卡片已过期，重新问一次看最新价）` };
+        if (Array.isArray(meta.items) && meta.items.length) {
+          const out = [{ role: 'assistant', kind: 'goods_card', items: meta.items }];
+          if (Array.isArray(meta.cross) && meta.cross.length) out.push({ role: 'assistant', kind: 'cross_list', items: meta.cross });
+          return out;
+        }
+        return expired('卡片已过期，重新问一次看最新价');
       }
       // service_card/list：meta.items 全量回放（2026-10-08 第三次翻车修复——旧 meta 只有
       //   {name,tracks}，重进降级成「找到 N 项服务」光秃文本）；旧历史诚实降级不再造假
       if (it.kind === 'service_card') {
         const svc = Array.isArray(meta.items) && meta.items.length ? meta.items[0] : (meta.service ?? null);
-        return svc ? { role: 'assistant', kind: 'service_card', service: svc } : { role: 'assistant', kind: 'text', content: `${it.content}（卡片已过期，重新问一次）` };
+        return svc ? [{ role: 'assistant', kind: 'service_card', service: svc }] : expired('卡片已过期，重新问一次');
       }
       if (it.kind === 'service_list') {
-        if (Array.isArray(meta.items) && meta.items.length) return { role: 'assistant', kind: 'service_list', items: meta.items };
-        return { role: 'assistant', kind: 'text', content: `${it.content}（卡片已过期，重新问一次）` };
+        if (Array.isArray(meta.items) && meta.items.length) return [{ role: 'assistant', kind: 'service_list', items: meta.items }];
+        return expired('卡片已过期，重新问一次');
       }
-      // cross_list：meta.cross 全量回放同款跨平台卡
+      // cross_list：兼容独立行（当前服务端不单落，防御性保留）
       if (it.kind === 'cross_list') {
-        if (Array.isArray(meta.cross) && meta.cross.length) return { role: 'assistant', kind: 'cross_list', items: meta.cross };
-        return { role: 'assistant', kind: 'text', content: it.content };
+        if (Array.isArray(meta.cross) && meta.cross.length) return [{ role: 'assistant', kind: 'cross_list', items: meta.cross }];
+        return [{ role: 'assistant', kind: 'text', content: it.content }];
       }
-      // parse_card：meta.link 全量回放登机牌（link 内嵌 platform/返利/口令）；旧历史无 link → 文本
+      // parse_card：meta.link 全量回放登机牌（link 内嵌 platform/返利/口令）+ 同款跨平台卡；
+      //   旧历史无 link → 文本。存量缺口修复：此前只回放 link+goods，cross 一直被丢
       if (it.kind === 'parse_card') {
-        if (meta.link) return { role: 'assistant', kind: 'parse_card', link: meta.link, goods: meta.goods ?? null };
-        return { role: 'assistant', kind: 'text', content: it.content };
+        if (meta.link) {
+          const out = [{ role: 'assistant', kind: 'parse_card', link: meta.link, goods: meta.goods ?? null }];
+          if (Array.isArray(meta.cross) && meta.cross.length) out.push({ role: 'assistant', kind: 'cross_list', items: meta.cross });
+          return out;
+        }
+        return [{ role: 'assistant', kind: 'text', content: it.content }];
       }
-      return { role: it.role, kind: 'text', content: it.content };
+      return [{ role: it.role, kind: 'text', content: it.content }];
     },
     send(text) {
       const msg = String(text ?? '').trim();
@@ -560,7 +572,7 @@ export default {
 .t-gold .e-cell-title { color: var(--fyt-primary-dark, #a31245); }
 .t-gold .e-cell-sub { color: rgba(163, 18, 69, 0.8); }
 .t-plain { background: var(--fyt-surface, #fff); }
-.t-softpink { background: #ffd9e6; }
+.t-softpink { background: var(--fyt-surface-alt, #ffd9e6); }
 .t-plain .e-cell-title, .t-softpink .e-cell-title { color: var(--fyt-text, #2b2b33); }
 .t-plain .e-cell-sub, .t-softpink .e-cell-sub { color: var(--fyt-text-2, #8c8577); }
 .t-outline { background: var(--fyt-surface, #fff); border-style: dashed; }
@@ -613,7 +625,7 @@ export default {
 .pcard { flex: 1; min-width: 0; background: var(--fyt-surface, #fff); border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
   border-radius: var(--fyt-radius-lg, 24rpx); box-shadow: var(--fyt-shadow-pop); overflow: hidden; }
 /* 头部：52 图位 + 识别列 + 返¥角标（浅粉底） */
-.pcard-top { display: flex; align-items: flex-start; gap: 18rpx; padding: 24rpx; background: #ffd9e6; }
+.pcard-top { display: flex; align-items: flex-start; gap: 18rpx; padding: 24rpx; background: var(--fyt-surface-alt, #ffd9e6); }
 .pcard-pic { width: 104rpx; height: 104rpx; border-radius: 16rpx; background: #fff;
   border: 3rpx solid var(--fyt-primary, #e8336d); flex-shrink: 0; }
 .pcard-pic-empty { display: flex; align-items: center; justify-content: center; }
@@ -633,7 +645,7 @@ export default {
 .pcard-stamp-txt { color: var(--fyt-primary, #e8336d); font-size: 22rpx; font-weight: 900; }
 /* 转链状态条 */
 .pcard-strip { display: flex; align-items: center; justify-content: space-between; gap: 12rpx;
-  padding: 12rpx 24rpx; background: #fff0f5; border-left: 8rpx solid var(--fyt-primary, #e8336d); }
+  padding: 12rpx 24rpx; background: var(--fyt-surface-alt, #fff0f5); border-left: 8rpx solid var(--fyt-primary, #e8336d); }
 .pcard-strip-l { font-size: 22rpx; font-weight: 800; color: var(--fyt-primary, #e8336d); }
 .pcard-strip-r { font-size: 20rpx; color: var(--fyt-text-2, #8c8577); letter-spacing: 1rpx; flex-shrink: 0; }
 /* 口令行 */
@@ -674,7 +686,7 @@ export default {
 .xprices { display: flex; align-items: baseline; gap: 12rpx; }
 .xfinal { font-size: 30rpx; font-weight: 900; color: var(--fyt-primary, #e8336d); }
 .xrebate { font-size: 20rpx; font-weight: 700; color: var(--fyt-primary, #e8336d);
-  background: #ffd9e6; border-radius: var(--fyt-radius-sm, 8rpx); padding: 2rpx 10rpx; }
+  background: var(--fyt-surface-alt, #ffd9e6); border-radius: var(--fyt-radius-sm, 8rpx); padding: 2rpx 10rpx; }
 .xgo { background: var(--fyt-secondary, #ffaa1d); border: 3rpx solid var(--fyt-primary-dark, #a31245);
   border-radius: var(--fyt-radius-full, 999rpx); padding: 12rpx 20rpx; flex-shrink: 0; box-shadow: var(--fyt-shadow-btn); }
 .xgo-txt { color: var(--fyt-primary-dark, #a31245); font-size: 24rpx; font-weight: 900; }

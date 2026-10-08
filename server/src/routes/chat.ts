@@ -333,9 +333,14 @@ async function toolSearchGoods(
 
   sseWrite(res, 'intent', { tool: 'search_goods', platform, keyword });
   sseWrite(res, 'card', { kind: 'goods_card', items: out });
+  // 搜索流态同样一次性出多平台（2026-10-08 D先生 钦定方案 A）：主卡后追加其余三平台
+  //   同款各 1 条（复用 29C crossPlatformGoods，kw<4 字自动跳过）；单轨失败静默降级。
+  //   历史单行模型 → cross 嵌入 meta（parse_card 同款做法），前端回放时补挂 cross_list
+  const cross = keyword.length >= 4 ? await crossPlatformGoods(keyword, platform, userId) : [];
+  if (cross.length) sseWrite(res, 'card', { kind: 'cross_list', items: cross });
   // meta 存 items 全量（真标题/图/价）→ 历史回看原样重建卡片（旧版只存 refs id，
   //   历史卡被重建成「搜…命中 3 件」假标题 + 空图，D先生 2026-10-08 实锤）；refs 保留兼容旧端
-  return { kind: 'goods_card', content: `搜「${keyword}」命中 ${out.length} 件`, meta: { platform, keyword, refs: out.map((o) => o.id), items: out } };
+  return { kind: 'goods_card', content: `搜「${keyword}」命中 ${out.length} 件`, meta: { platform, keyword, refs: out.map((o) => o.id), items: out, cross } };
 }
 
 /** 服务名口语变体（2026-10-07 真机三连败纠偏）：hy3 会照搬口语进 name——
