@@ -1,7 +1,13 @@
 <template>
   <view class="page" :style="pageTheme">
-    <view v-if="loading" class="loading">
-      <text class="loading-text">福袋兽搬金币中…</text>
+    <!-- 福袋兽过渡遮罩（与会员权益页同规格：🦊+💰 动效 + BUILD 身份牌） -->
+    <view v-if="loading" class="loading-mask">
+      <view class="loading-card">
+        <text class="loading-beast">🦊</text>
+        <text class="loading-coin">💰</text>
+        <text class="loading-text">福袋兽搬金币中…</text>
+        <text class="loading-ver">{{ buildVer }}</text>
+      </view>
     </view>
     <view v-else-if="error" class="error">
       <text>{{ error }}</text>
@@ -32,6 +38,8 @@ export default {
       error: '',
       schema: null,
       theme: null,
+      // 遮罩可见版本身份牌（与会员权益页同款）：构建时 patch-buildver 自动替换为真实时间戳
+      buildVer: 'BUILD 20260930.1135',
     };
   },
   onLoad(options) {
@@ -95,6 +103,29 @@ export default {
 .error {
   display: flex; flex-direction: column; align-items: center; gap: $fyt-space-4;
   padding: 200rpx 0; color: $fyt-text-secondary;
+}
+/* ---------- 福袋兽过渡遮罩（与会员权益页同款规格） ---------- */
+.loading-mask {
+  position: fixed;
+  left: 0; right: 0; top: 0; bottom: 0;
+  z-index: 999;
+  background: rgba(255, 246, 233, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.loading-card { display: flex; flex-direction: column; align-items: center; gap: 20rpx; }
+.loading-beast { font-size: 88rpx; animation: beast-bounce 0.9s ease-in-out infinite; }
+.loading-coin { font-size: 52rpx; margin-top: -30rpx; animation: coin-sway 0.9s ease-in-out infinite; }
+.loading-text { font-size: 30rpx; font-weight: 800; color: var(--fyt-primary, #e8336d); }
+.loading-ver { font-size: 20rpx; color: #c9a7b3; margin-top: 8rpx; }
+@keyframes beast-bounce {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-24rpx) rotate(6deg); }
+}
+@keyframes coin-sway {
+  0%, 100% { transform: translateX(-14rpx); }
+  50% { transform: translateX(14rpx); }
 }
 .fyt-btn {
   background: $fyt-primary; color: $fyt-text-on-primary;

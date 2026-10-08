@@ -1,16 +1,15 @@
 <template>
   <view class="chat-page">
-    <!-- 头部品牌区（设计稿 29：玫红延伸条 + 站点名胶囊） -->
-    <view class="chat-hero">
-      <view v-if="siteName" class="hero-pill"><text class="hero-pill-txt">{{ siteName }}</text></view>
-    </view>
-
     <!-- 消息流 / 空态 -->
     <scroll-view
       class="chat-body" scroll-y :scroll-top="scrollTop" scroll-with-animation
       :refresher-enabled="hasMoreHistory" refresher-default-style="none"
       :refresher-triggered="refreshing" @refresherrefresh="loadEarlier"
     >
+      <!-- 真机第三轮实锤（2026-10-07 21:5x 截图）：scroll-view 自身的水平 padding 不参与
+           子元素宽度解析——子元素按 750rpx 全宽解析再被 padding 推右 → 恒溢出 24rpx，
+           宫格与商品卡同炸同量。定式：scroll-view 禁 padding，内层 .chat-inner 承担水平内边距 -->
+      <view class="chat-inner">
       <!-- 空态（29B 能力全景）：机器人 + 徽章 + 2×3 矩阵 + 推荐问法 -->
       <view v-if="msgs.length === 0" class="empty">
         <view class="e-avatar"><text class="e-avatar-face">◔‿◔</text></view>
@@ -51,22 +50,26 @@
         <view v-if="m.kind === 'text'" class="bubble" :class="m.role === 'user' ? 'bubble-me' : 'bubble-ai'">
           <text class="bubble-txt" :class="m.role === 'user' ? 'txt-on-primary' : ''">{{ m.content }}</text>
         </view>
-        <!-- goods-card（29 出票亭：品牌首字 + 券额 + 到手价 + GO 副券） -->
-        <view v-else-if="m.kind === 'goods_card'" class="goods-stack">
-          <view v-for="g in m.items" :key="g.id" class="gcard">
-            <view class="gcard-main">
-              <view class="gcard-logo"><text class="gcard-logo-txt">{{ firstChar(g.title) }}</text></view>
-              <view class="gcard-info">
-                <text class="gcard-title">{{ g.title }}</text>
-                <view class="gcard-prices">
-                  <view v-if="g.coupon" class="gcard-coupon"><text class="gcard-coupon-txt">¥{{ g.coupon }} 券</text></view>
-                  <text class="gcard-final">到手 ¥{{ g.finalPrice }}</text>
-                </view>
-                <text v-if="g.rebate != null" class="gcard-rebate">走本站口令下单，本单预计返 {{ g.rebate }} 元</text>
+        <!-- goods-card（29C 智能搜索·比价结果：与跨平台出票完全同款 xcard 行卡——
+             D先生 2026-10-08 实锤「搜索流态=转链后同款样式」，设计稿 1:1） -->
+        <view v-else-if="m.kind === 'goods_card'" class="xwrap">
+          <view class="xhead">
+            <view class="xhead-tag"><text class="xhead-tag-txt">智能搜索</text></view>
+            <text class="xhead-b">比价结果</text>
+            <text class="xhead-s">· 跨渠道比价 · 返利已算进到手价</text>
+          </view>
+          <view v-for="g in m.items" :key="g.id" class="xcard">
+            <image v-if="g.pic" class="xpic" :src="g.pic" mode="aspectFill" />
+            <view v-else class="xpic xpic-empty"><text class="xpic-txt">{{ firstChar(g.title) }}</text></view>
+            <view class="xtag" :class="'xtag-' + g.platform"><text class="xtag-txt">{{ platformName(g.platform) }}</text></view>
+            <view class="xmain">
+              <text class="xtitle">{{ g.title }}</text>
+              <view class="xprices">
+                <text v-if="g.finalPrice" class="xfinal">到手 ¥{{ g.finalPrice }}</text>
+                <text v-if="g.rebate != null" class="xrebate">返 ¥{{ g.rebate }}</text>
               </view>
-              <view class="gcard-go" @tap="goGoods(g)"><text class="gcard-go-txt">GO</text><text class="gcard-go-sub">去使用</text></view>
             </view>
-            <view class="gcard-tear" />
+            <view class="xgo" @tap="goCross(g)"><text class="xgo-txt">去{{ platformName(g.platform) }}</text></view>
           </view>
         </view>
         <!-- service-card（29 美团红包卡） -->
@@ -76,26 +79,73 @@
             <text class="scard-title">{{ m.service.name }}</text>
             <text class="scard-sub">{{ m.service.cat_name }} · 一键直达</text>
           </view>
-          <view class="scard-btn" @tap="goService(m.service)"><text class="scard-btn-txt">前往</text></view>
+          <view class="scard-btn" @tap="goCardItem(m.service)"><text class="scard-btn-txt">前往</text></view>
         </view>
-        <!-- parse-card（29C 登机牌：识别行 + 撕票线 + 口令 + 复制钮） -->
+        <!-- parse-card（29C 大登机牌：52 图位 + 识别列 + 返¥角标 + 转链条 + 口令行） -->
         <view v-else-if="m.kind === 'parse_card'" class="pcard">
-          <view class="pcard-head">
-            <view class="pcard-tag"><text class="pcard-tag-txt">识别</text></view>
-            <text class="pcard-head-txt">{{ platformName(m.link.platform) }} · 转链成功</text>
-            <view class="pcard-stamp"><text class="pcard-stamp-txt">已返利</text></view>
+          <view class="pcard-top">
+            <image v-if="m.goods && m.goods.pic" class="pcard-pic" :src="m.goods.pic" mode="aspectFill" />
+            <view v-else class="pcard-pic pcard-pic-empty"><text class="pcard-pic-txt">{{ firstChar(m.goods?.title || platformName(m.link.platform)) }}</text></view>
+            <view class="pcard-info">
+              <view class="pcard-meta-row">
+                <view class="pcard-tag"><text class="pcard-tag-txt">识别</text></view>
+                <text class="pcard-meta">{{ pcardMeta(m) }}</text>
+              </view>
+              <text v-if="m.goods" class="pcard-title">{{ m.goods.title }}</text>
+              <view v-if="m.goods && m.goods.finalPrice" class="pcard-price-row">
+                <text class="pcard-price-label">到手</text>
+                <text class="pcard-price">¥{{ m.goods.finalPrice }}</text>
+              </view>
+            </view>
+            <view v-if="m.link.rebate != null" class="pcard-stamp"><text class="pcard-stamp-txt">返¥{{ m.link.rebate }}</text></view>
+          </view>
+          <view class="pcard-strip">
+            <text class="pcard-strip-l">AI 已转链 · 返利通道已挂本站</text>
+            <text class="pcard-strip-r">{{ platformEn(m.link.platform) }} → 返利舱</text>
           </view>
           <view class="pcard-body">
             <view class="pcard-link">
               <text class="pcard-url" selectable>{{ m.link.tkl || m.link.url }}</text>
-              <text class="pcard-hint">下单确认后返利自动入账</text>
+              <text class="pcard-hint">{{ pcardHint(m) }}</text>
             </view>
             <view class="pcard-copy" @tap="copyLink(m.link)"><text class="pcard-copy-txt">复制口令</text></view>
+          </view>
+        </view>
+        <!-- cross-list（29C 同款跨平台出票：40 图位 + 平台标 + 到手价 + 返¥ + 去XX） -->
+        <view v-else-if="m.kind === 'cross_list'" class="xwrap">
+          <view class="xhead">
+            <text class="xhead-b">同款其他平台也出票</text>
+            <text class="xhead-s">京东 / 拼多多 / 唯品会 · 直跳官方小程序</text>
+          </view>
+          <view v-for="(x, i) in m.items" :key="i" class="xcard">
+            <image v-if="x.pic" class="xpic" :src="x.pic" mode="aspectFill" />
+            <view v-else class="xpic xpic-empty"><text class="xpic-txt">{{ firstChar(x.title) }}</text></view>
+            <view class="xtag" :class="'xtag-' + x.platform"><text class="xtag-txt">{{ platformName(x.platform) }}</text></view>
+            <view class="xmain">
+              <text class="xtitle">{{ x.title }}</text>
+              <view class="xprices">
+                <text v-if="x.finalPrice" class="xfinal">到手 ¥{{ x.finalPrice }}</text>
+                <text v-if="x.rebate != null" class="xrebate">返 ¥{{ x.rebate }}</text>
+              </view>
+            </view>
+            <view class="xgo" @tap="goCross(x)"><text class="xgo-txt">去{{ platformName(x.platform) }}</text></view>
+          </view>
+        </view>
+        <!-- service-list（多命中：分类展开 / 权益档位列表，每项带 track 分发） -->
+        <view v-else-if="m.kind === 'service_list'" class="slist">
+          <view v-for="(s, i) in m.items" :key="i" class="slist-row" @tap="goCardItem(s)">
+            <view class="scard-logo"><text class="scard-logo-txt">{{ firstChar(s.name) }}</text></view>
+            <view class="slist-main">
+              <text class="slist-name">{{ s.name }}</text>
+              <text class="slist-sub">{{ s.cat_name }} · {{ trackLabel(s.track) }}</text>
+            </view>
+            <view class="slist-go"><text class="slist-go-txt">前往</text></view>
           </view>
         </view>
       </view>
 
       <view class="foot-safe" />
+      </view>
     </scroll-view>
 
     <!-- 输入条（29 底部：圆角输入 + 玫红圆发送钮） -->
@@ -117,12 +167,11 @@
  * 返利数字 = 服务端按「上游佣金 × 用户等级自购比例」算好的 user_rebate，无则不渲染该行（绝不编数）。
  */
 import { API_BASE, request, getToken } from '../../utils/request.js';
-import { onGoodsTap } from '../../core/link';
+import { onGoodsTap, goUnion } from '../../core/link';
 
 export default {
   data() {
     return {
-      siteName: '',
       draft: '',
       sending: false,
       sessionId: '',
@@ -164,7 +213,6 @@ export default {
         this.chips = d.chips ?? [];
         this.suggests = d.suggests ?? [];
         this.badges = d.badges ?? this.badges;
-        this.siteName = d.site_name ?? '';
         if (d.welcome) this.welcome = d.welcome;
       } catch { /* boot 失败不阻塞，用默认值 */ }
     },
@@ -191,9 +239,33 @@ export default {
       this.refreshing = false;
     },
     fromHistory(it) {
-      if (it.kind === 'goods_card') return { role: 'assistant', kind: 'goods_card', items: (it.meta?.refs ?? []).map((id) => ({ id, title: it.content, price: 0, finalPrice: 0, coupon: null, pic: '', shop: '', rebate: null, stale: true })) };
-      if (it.kind === 'service_card') return { role: 'assistant', kind: 'service_card', service: it.meta ?? { name: it.content } };
-      if (it.kind === 'parse_card') return { role: 'assistant', kind: 'text', content: it.content };
+      const meta = it.meta ?? {};
+      // goods_card：新历史 meta.items 全量回放（真标题/图/价，29C 登机牌样式）；
+      //   旧历史只有 refs id 列表 → 诚实降级文本（不再重建「搜…命中3件」假标题空图卡）
+      if (it.kind === 'goods_card') {
+        if (Array.isArray(meta.items) && meta.items.length) return { role: 'assistant', kind: 'goods_card', items: meta.items };
+        return { role: 'assistant', kind: 'text', content: `${it.content}（卡片已过期，重新问一次看最新价）` };
+      }
+      // service_card/list：meta.items 全量回放（2026-10-08 第三次翻车修复——旧 meta 只有
+      //   {name,tracks}，重进降级成「找到 N 项服务」光秃文本）；旧历史诚实降级不再造假
+      if (it.kind === 'service_card') {
+        const svc = Array.isArray(meta.items) && meta.items.length ? meta.items[0] : (meta.service ?? null);
+        return svc ? { role: 'assistant', kind: 'service_card', service: svc } : { role: 'assistant', kind: 'text', content: `${it.content}（卡片已过期，重新问一次）` };
+      }
+      if (it.kind === 'service_list') {
+        if (Array.isArray(meta.items) && meta.items.length) return { role: 'assistant', kind: 'service_list', items: meta.items };
+        return { role: 'assistant', kind: 'text', content: `${it.content}（卡片已过期，重新问一次）` };
+      }
+      // cross_list：meta.cross 全量回放同款跨平台卡
+      if (it.kind === 'cross_list') {
+        if (Array.isArray(meta.cross) && meta.cross.length) return { role: 'assistant', kind: 'cross_list', items: meta.cross };
+        return { role: 'assistant', kind: 'text', content: it.content };
+      }
+      // parse_card：meta.link 全量回放登机牌（link 内嵌 platform/返利/口令）；旧历史无 link → 文本
+      if (it.kind === 'parse_card') {
+        if (meta.link) return { role: 'assistant', kind: 'parse_card', link: meta.link, goods: meta.goods ?? null };
+        return { role: 'assistant', kind: 'text', content: it.content };
+      }
       return { role: it.role, kind: 'text', content: it.content };
     },
     send(text) {
@@ -318,16 +390,54 @@ export default {
     pushCard(j) {
       if (j.kind === 'goods_card') this.msgs.push({ role: 'assistant', kind: 'goods_card', items: j.items ?? [] });
       else if (j.kind === 'service_card') this.msgs.push({ role: 'assistant', kind: 'service_card', service: j.service });
-      else if (j.kind === 'parse_card') this.msgs.push({ role: 'assistant', kind: 'parse_card', link: j.link });
+      else if (j.kind === 'service_list') this.msgs.push({ role: 'assistant', kind: 'service_list', items: j.items ?? [] });
+      else if (j.kind === 'parse_card') this.msgs.push({ role: 'assistant', kind: 'parse_card', link: j.link, goods: j.goods ?? null });
+      else if (j.kind === 'cross_list') this.msgs.push({ role: 'assistant', kind: 'cross_list', items: j.items ?? [] });
       this.scrollBottom();
     },
-    goGoods(g) {
-      if (g.stale) { uni.showToast({ title: '回看卡片已失效，重新搜一下最新价', icon: 'none' }); return; }
-      if (g.miniAppId) {
-        uni.navigateToMiniProgram({ appId: g.miniAppId, path: g.miniPath, fail: () => this.copyText(g.tkl || g.url || '') });
+    /** 29C 大登机牌：识别行 meta 文案（平台 · 原价 · 券） */
+    pcardMeta(m) {
+      const parts = [this.platformName(m.link.platform) + '商品'];
+      if (m.goods?.price) parts.push('原价 ¥' + m.goods.price);
+      if (m.goods?.coupon) parts.push('券已叠加');
+      return parts.join(' · ');
+    },
+    pcardHint(m) {
+      return m.link.rebate != null
+        ? '下单确认后 ¥' + m.link.rebate + ' 返利自动入账'
+        : '下单确认后返利自动入账';
+    },
+    platformEn(p) {
+      return ({ jd: 'JD', tb: 'TAOBAO', pdd: 'PDD', vip: 'VIP' })[p] || String(p).toUpperCase();
+    },
+    /** 跨平台卡点击：按需转链 + 跳官方小程序（复用 core/link goUnion 四平台矩阵，含复制兜底） */
+    goCross(x) {
+      goUnion({ platform: x.platform, id: x.id, title: x.title, price: x.finalPrice, raw: { goods_sign: x.sign ?? '' } });
+    },
+    /** 卡片项分发（单卡/列表项同走此口）：rights → life_05 半屏 + cid 档位；其余 → goService 三轨 */
+    goCardItem(s) {
+      if (s?.track === 'rights') {
+        if (!s?.cid) { uni.showToast({ title: '该权益暂未配置兑换档位', icon: 'none' }); return; }
+        // #ifndef MP-WEIXIN
+        uni.navigateTo({ url: '/pages/rights/levels', fail: () => {} });
+        return;
+        // #endif
+        // #ifdef MP-WEIXIN
+        request('/api/site/brand-launch?code=life_05')
+          .then((d) => this.doLaunch(d, String(s.cid)))
+          .catch((e) => uni.showToast({ title: e.message ?? '呼起配置未录入', icon: 'none' }));
+        // #endif
         return;
       }
-      this.copyText(g.tkl || g.url || '');
+      this.goService(s);
+    },
+    trackLabel(t) {
+      return ({ rights: '积分兑换', plugin: '站内直达', halfscreen: '半屏呼起', act: '领券直达', launch: '一键呼起', self: '到店团购' })[t] ?? '直达';
+    },
+    /** 转链卡跳转矩阵已统一收编 core/link.goUnion（29C 起跨平台卡/搜索卡/口令跳转同走该矩阵） */
+    goCross(x) {
+      if (!x?.platform) { uni.showToast({ title: '这条卡片缺少平台信息，重新问一次', icon: 'none' }); return; }
+      goUnion({ platform: x.platform, id: x.id, title: x.title, price: x.finalPrice, raw: { goods_sign: x.sign ?? '' } });
     },
     goService(s) {
       // 与 search-result.launchService 同协议（07B 铁律：按 brand_code 精确，服务端定轨道，端上只分发）
@@ -419,14 +529,9 @@ export default {
 <style scoped>
 .chat-page { display: flex; flex-direction: column; height: 100vh; background: var(--fyt-bg, #fff6e9); }
 
-/* ── 头部品牌条（29 顶栏延伸） ── */
-.chat-hero { background: linear-gradient(160deg, #f0568b 0%, var(--fyt-primary, #e8336d) 55%, #c9225a 100%);
-  padding: 12rpx 32rpx 20rpx; display: flex; justify-content: flex-end; }
-.hero-pill { border: 3rpx solid rgba(255, 255, 255, 0.9); border-radius: var(--fyt-radius-full, 999rpx);
-  padding: 6rpx 22rpx; background: rgba(255, 255, 255, 0.12); }
-.hero-pill-txt { color: #ffffff; font-size: 24rpx; font-weight: 700; }
-
-.chat-body { flex: 1; min-height: 0; padding: 0 24rpx; }
+.chat-body { flex: 1; min-height: 0; }
+/* 水平内边距放内层普通 view（scroll-view padding 不可靠，见模板注释） */
+.chat-inner { padding: 0 24rpx; }
 
 /* ── 空态（29B） ── */
 .empty { display: flex; flex-direction: column; align-items: center; padding: 40rpx 0 30rpx; }
@@ -442,13 +547,13 @@ export default {
 .e-badge-txt { color: var(--fyt-primary, #e8336d); font-size: 22rpx; font-weight: 800; }
 .e-sec-title { align-self: flex-start; font-size: 30rpx; font-weight: 900; color: var(--fyt-text, #2b2b33);
   margin: 36rpx 0 18rpx; }
-.e-matrix { display: flex; flex-wrap: wrap; margin: 0 -10rpx; width: calc(100% + 20rpx); }
-/* 盒模型避坑：外层格子只定 50% 宽、零水平 padding/border；卡片视觉（padding+border+阴影）
-   全放内层 .e-card —— 真机按 content-box 计算时也不会溢出（mini-06 宫格同思路） */
-.e-cell { width: 50%; display: flex; flex-direction: column; padding: 0 0 20rpx 0; }
+.e-matrix { display: flex; flex-wrap: wrap; width: 100%; }
+/* 宫格终极定式（mini-06 同款）：外层格子零水平盒模型属性（无 padding/border/margin），
+   视觉卡的水平间距全放内层 .e-card 的 margin——content-box 语义下任何解析都不可能溢出 */
+.e-cell { flex: 1 1 300rpx; min-width: 0; display: flex; flex-direction: column; padding: 0 0 20rpx; }
 .e-card { flex: 1; margin: 0 10rpx; border-radius: var(--fyt-radius-lg, 24rpx); padding: 24rpx;
   border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
-  box-shadow: var(--fyt-shadow-pop); display: flex; flex-direction: column; gap: 8rpx; box-sizing: border-box; }
+  box-shadow: var(--fyt-shadow-pop); display: flex; flex-direction: column; gap: 8rpx; }
 .t-pink { background: var(--fyt-primary, #e8336d); }
 .t-pink .e-cell-title, .t-pink .e-cell-sub { color: var(--fyt-on-primary, #fff); }
 .t-gold { background: var(--fyt-secondary, #ffaa1d); }
@@ -488,33 +593,12 @@ export default {
 .bubble-txt { font-size: 28rpx; line-height: 1.6; word-break: break-all; }
 .txt-on-primary { color: var(--fyt-on-primary, #fff); }
 
-/* ── goods-card（29 出票亭） ── */
-.goods-stack { display: flex; flex-direction: column; gap: 20rpx; width: 100%; }
-.gcard { background: var(--fyt-surface, #fff); border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
-  border-radius: var(--fyt-radius-lg, 24rpx); box-shadow: var(--fyt-shadow-pop); overflow: hidden; }
-.gcard-main { display: flex; align-items: center; gap: 18rpx; padding: 24rpx; }
-.gcard-logo { width: 84rpx; height: 84rpx; border-radius: 50%; background: #ffd9e6;
-  border: 3rpx solid var(--fyt-primary, #e8336d); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.gcard-logo-txt { color: var(--fyt-primary, #e8336d); font-size: 36rpx; font-weight: 900; }
-.gcard-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
-.gcard-title { font-size: 28rpx; font-weight: 800; color: var(--fyt-text, #2b2b33);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gcard-prices { display: flex; align-items: center; gap: 12rpx; }
-.gcard-coupon { background: var(--fyt-primary, #e8336d); border-radius: var(--fyt-radius-sm, 8rpx); padding: 2rpx 12rpx; }
-.gcard-coupon-txt { color: var(--fyt-on-primary, #fff); font-size: 20rpx; font-weight: 800; }
-.gcard-final { color: var(--fyt-primary, #e8336d); font-size: 30rpx; font-weight: 900; }
-.gcard-rebate { color: var(--fyt-primary, #e8336d); font-size: 20rpx; }
-.gcard-go { width: 128rpx; align-self: stretch; border-left: 3rpx dashed var(--fyt-primary, #e8336d);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4rpx; flex-shrink: 0; }
-.gcard-go-txt { color: var(--fyt-primary, #e8336d); font-size: 34rpx; font-weight: 900; letter-spacing: 2rpx; }
-.gcard-go-sub { color: var(--fyt-text-2, #8c8577); font-size: 18rpx; }
-/* 撕票线（29 视觉锤：锯齿虚线） */
-.gcard-tear { border-top: 3rpx dashed var(--fyt-primary, #e8336d); margin: 0 24rpx; opacity: 0.4; }
+/* goods-card 样式已并入 xwrap/xcard（29C：搜索流=跨平台出票同款行卡，2026-10-08 D先生 实锤定稿） */
 
 /* ── service-card（29 红包卡） ── */
-.scard { flex: 1; background: var(--fyt-surface, #fff); border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
+.scard { flex: 1; min-width: 0; background: var(--fyt-surface, #fff); border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
   border-radius: var(--fyt-radius-lg, 24rpx); box-shadow: var(--fyt-shadow-pop);
-  display: flex; align-items: center; gap: 18rpx; padding: 24rpx; max-width: 82%; }
+  display: flex; align-items: center; gap: 18rpx; padding: 24rpx; }
 .scard-logo { width: 84rpx; height: 84rpx; border-radius: 50%; background: var(--fyt-secondary, #ffaa1d);
   border: 3rpx solid var(--fyt-primary-dark, #a31245); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .scard-logo-txt { color: var(--fyt-primary-dark, #a31245); font-size: 36rpx; font-weight: 900; }
@@ -525,16 +609,34 @@ export default {
   border-radius: var(--fyt-radius-full, 999rpx); padding: 12rpx 26rpx; flex-shrink: 0; box-shadow: var(--fyt-shadow-btn); }
 .scard-btn-txt { color: var(--fyt-primary-dark, #a31245); font-size: 26rpx; font-weight: 800; }
 
-/* ── parse-card（29C 登机牌） ── */
-.pcard { flex: 1; background: var(--fyt-surface, #fff); border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
-  border-radius: var(--fyt-radius-lg, 24rpx); box-shadow: var(--fyt-shadow-pop); max-width: 82%; overflow: hidden; }
-.pcard-head { display: flex; align-items: center; gap: 12rpx; padding: 18rpx 24rpx; background: #ffd9e6; }
-.pcard-tag { background: var(--fyt-primary, #e8336d); border-radius: var(--fyt-radius-sm, 8rpx); padding: 4rpx 14rpx; }
+/* ── parse-card（29C 大登机牌） ── */
+.pcard { flex: 1; min-width: 0; background: var(--fyt-surface, #fff); border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
+  border-radius: var(--fyt-radius-lg, 24rpx); box-shadow: var(--fyt-shadow-pop); overflow: hidden; }
+/* 头部：52 图位 + 识别列 + 返¥角标（浅粉底） */
+.pcard-top { display: flex; align-items: flex-start; gap: 18rpx; padding: 24rpx; background: #ffd9e6; }
+.pcard-pic { width: 104rpx; height: 104rpx; border-radius: 16rpx; background: #fff;
+  border: 3rpx solid var(--fyt-primary, #e8336d); flex-shrink: 0; }
+.pcard-pic-empty { display: flex; align-items: center; justify-content: center; }
+.pcard-pic-txt { color: var(--fyt-primary, #e8336d); font-size: 40rpx; font-weight: 900; }
+.pcard-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8rpx; }
+.pcard-meta-row { display: flex; align-items: center; gap: 12rpx; min-width: 0; }
+.pcard-tag { background: var(--fyt-primary, #e8336d); border-radius: var(--fyt-radius-sm, 8rpx); padding: 4rpx 14rpx; flex-shrink: 0; }
 .pcard-tag-txt { color: var(--fyt-on-primary, #fff); font-size: 20rpx; font-weight: 800; }
-.pcard-head-txt { flex: 1; color: var(--fyt-text, #2b2b33); font-size: 24rpx; font-weight: 700; }
+.pcard-meta { font-size: 22rpx; color: var(--fyt-text-2, #8c8577); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard-title { font-size: 30rpx; font-weight: 900; color: var(--fyt-text, #2b2b33);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard-price-row { display: flex; align-items: baseline; gap: 8rpx; }
+.pcard-price-label { font-size: 22rpx; color: var(--fyt-primary, #e8336d); font-weight: 700; }
+.pcard-price { font-size: 40rpx; color: var(--fyt-primary, #e8336d); font-weight: 900; }
 .pcard-stamp { border: 3rpx solid var(--fyt-primary, #e8336d); border-radius: var(--fyt-radius-sm, 8rpx);
-  padding: 2rpx 10rpx; transform: rotate(-6deg); background: rgba(255, 255, 255, 0.7); }
-.pcard-stamp-txt { color: var(--fyt-primary, #e8336d); font-size: 20rpx; font-weight: 900; }
+  padding: 6rpx 12rpx; transform: rotate(8deg); background: rgba(255, 255, 255, 0.85); flex-shrink: 0; }
+.pcard-stamp-txt { color: var(--fyt-primary, #e8336d); font-size: 22rpx; font-weight: 900; }
+/* 转链状态条 */
+.pcard-strip { display: flex; align-items: center; justify-content: space-between; gap: 12rpx;
+  padding: 12rpx 24rpx; background: #fff0f5; border-left: 8rpx solid var(--fyt-primary, #e8336d); }
+.pcard-strip-l { font-size: 22rpx; font-weight: 800; color: var(--fyt-primary, #e8336d); }
+.pcard-strip-r { font-size: 20rpx; color: var(--fyt-text-2, #8c8577); letter-spacing: 1rpx; flex-shrink: 0; }
+/* 口令行 */
 .pcard-body { display: flex; align-items: center; gap: 16rpx; padding: 22rpx 24rpx; }
 .pcard-link { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
 .pcard-url { font-size: 28rpx; font-weight: 800; color: var(--fyt-text, #2b2b33); word-break: break-all; }
@@ -542,6 +644,52 @@ export default {
 .pcard-copy { background: var(--fyt-secondary, #ffaa1d); border: 3rpx solid var(--fyt-primary-dark, #a31245);
   border-radius: var(--fyt-radius-md, 14rpx); padding: 16rpx 22rpx; flex-shrink: 0; box-shadow: var(--fyt-shadow-btn); }
 .pcard-copy-txt { color: var(--fyt-primary-dark, #a31245); font-size: 26rpx; font-weight: 900; }
+
+/* ── cross-list（29C 同款跨平台出票） ── */
+.xwrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16rpx; }
+.xhead { display: flex; align-items: baseline; gap: 12rpx; flex-wrap: wrap; padding: 4rpx 4rpx 0; }
+.xhead-tag { align-self: center; background: var(--fyt-primary, #e8336d); border: 3rpx solid var(--fyt-primary-dark, #a31245);
+  border-radius: var(--fyt-radius-sm, 8rpx); padding: 4rpx 14rpx; box-shadow: var(--fyt-shadow-btn); }
+.xhead-tag-txt { color: var(--fyt-on-primary, #fff); font-size: 22rpx; font-weight: 900; }
+.xhead-b { font-size: 26rpx; font-weight: 900; color: var(--fyt-text, #2b2b33); }
+.xhead-s { font-size: 20rpx; color: var(--fyt-text-2, #8c8577); }
+.xcard { display: flex; align-items: center; gap: 14rpx; background: var(--fyt-surface, #fff);
+  border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
+  border-radius: var(--fyt-radius-lg, 24rpx); box-shadow: var(--fyt-shadow-pop); padding: 20rpx; }
+.xpic { width: 80rpx; height: 80rpx; border-radius: 12rpx; background: var(--fyt-bg, #fff6e9);
+  border: 2rpx solid var(--fyt-border-default, #f2ddc0); flex-shrink: 0; }
+.xpic-empty { display: flex; align-items: center; justify-content: center; }
+.xpic-txt { color: var(--fyt-primary, #e8336d); font-size: 32rpx; font-weight: 900; }
+.xtag { border-radius: var(--fyt-radius-sm, 8rpx); padding: 6rpx 14rpx; flex-shrink: 0; }
+.xtag-txt { font-size: 20rpx; font-weight: 800; }
+.xtag-jd { background: #2b2b33; }
+.xtag-jd .xtag-txt { color: #fff; }
+.xtag-pdd { background: var(--fyt-primary, #e8336d); }
+.xtag-pdd .xtag-txt { color: var(--fyt-on-primary, #fff); }
+.xtag-vip { background: var(--fyt-surface, #fff); border: 2rpx solid var(--fyt-primary, #e8336d); }
+.xtag-vip .xtag-txt { color: var(--fyt-primary, #e8336d); }
+.xmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
+.xtitle { font-size: 26rpx; font-weight: 800; color: var(--fyt-text, #2b2b33);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xprices { display: flex; align-items: baseline; gap: 12rpx; }
+.xfinal { font-size: 30rpx; font-weight: 900; color: var(--fyt-primary, #e8336d); }
+.xrebate { font-size: 20rpx; font-weight: 700; color: var(--fyt-primary, #e8336d);
+  background: #ffd9e6; border-radius: var(--fyt-radius-sm, 8rpx); padding: 2rpx 10rpx; }
+.xgo { background: var(--fyt-secondary, #ffaa1d); border: 3rpx solid var(--fyt-primary-dark, #a31245);
+  border-radius: var(--fyt-radius-full, 999rpx); padding: 12rpx 20rpx; flex-shrink: 0; box-shadow: var(--fyt-shadow-btn); }
+.xgo-txt { color: var(--fyt-primary-dark, #a31245); font-size: 24rpx; font-weight: 900; }
+
+/* ── service-list（多命中列表） ── */
+.slist { flex: 1; min-width: 0; background: var(--fyt-surface, #fff); border: var(--fyt-border-thick, 3rpx) solid var(--fyt-primary-dark, #a31245);
+  border-radius: var(--fyt-radius-lg, 24rpx); box-shadow: var(--fyt-shadow-pop); overflow: hidden; }
+.slist-row { display: flex; align-items: center; gap: 16rpx; padding: 18rpx 22rpx; }
+.slist-row + .slist-row { border-top: 2rpx dashed var(--fyt-border-default, #f2ddc0); }
+.slist-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4rpx; }
+.slist-name { font-size: 27rpx; font-weight: 800; color: var(--fyt-text, #2b2b33); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slist-sub { font-size: 20rpx; color: var(--fyt-text-2, #8c8577); }
+.slist-go { background: var(--fyt-secondary, #ffaa1d); border: 3rpx solid var(--fyt-primary-dark, #a31245);
+  border-radius: var(--fyt-radius-full, 999rpx); padding: 8rpx 22rpx; flex-shrink: 0; box-shadow: var(--fyt-shadow-btn); }
+.slist-go-txt { color: var(--fyt-primary-dark, #a31245); font-size: 24rpx; font-weight: 800; }
 
 .foot-safe { height: 40rpx; }
 

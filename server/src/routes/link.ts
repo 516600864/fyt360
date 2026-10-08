@@ -96,12 +96,32 @@ export function extractLink(platform: string, payload: Record<string, unknown>):
       // data 即短链字符串
       const url = typeof data === 'string' ? data : String((data as Record<string, unknown> | null)?.data ?? '');
       if (!url) throw new HttpError(502, 'CONVERT_EMPTY', '京东转链未返回链接');
-      return { url };
+      const out: LinkResult = { url };
+      // jd 的 we_app_info 在响应**顶层**（非 data 内，实测 2026-10-07）：官方小程序 proxy 跳转
+      const we = (payload.we_app_info ?? null) as Record<string, unknown> | null;
+      if (we?.app_id && we?.path) {
+        out.miniAppId = String(we.app_id);
+        out.miniPath = String(we.path);
+      }
+      return out;
     }
     case 'tb': {
       const d = (data ?? {}) as Record<string, unknown>;
       const url = String(d.coupon_click_url ?? d.coupon_long_url ?? '');
-      if (!url) throw new HttpError(502, 'CONVERT_EMPTY', '淘宝转链未返回链接');
+      if (!url) {
+        // 上游人话透传（2026-10-07 实测：tb 短链时效失效回 103「不支持该商品id」，
+        // 糊成通用 CONVERT_EMPTY 会让端上文案误导用户「复制完整链接」）。
+        // 103 藏在 data.data.item_url_list.item_url_list.code 深层（顶层 message 仍是 success）→ 深挖
+        const nested = (d.data ?? null) as Record<string, unknown> | null;
+        const iul = (nested?.item_url_list ?? null) as Record<string, unknown> | null;
+        const iul2 = (iul?.item_url_list ?? null) as Record<string, unknown> | null;
+        const code = String(iul2?.code ?? '');
+        throw new HttpError(
+          502,
+          code ? `上游错误码${code}：不支持该商品id` : String(payload.message ?? '淘宝转链未返回链接'),
+          'CONVERT_EMPTY',
+        );
+      }
       const tkl = d.coupon_full_tpwd ? String(d.coupon_full_tpwd) : undefined;
       return tkl ? { url, tkl } : { url };
     }

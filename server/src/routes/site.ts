@@ -370,10 +370,10 @@ const SEARCH_RESULT_TTL_MS = 60_000;
 const searchResultCache = new Map<string, { at: number; data: Record<string, unknown> }>();
 
 /** fasttype 权益目录 → 服务直达 track=rights 命中项（蚂蚁积分口径；失败返回空数组不阻塞他轨） */
-async function searchRightsTrack(kw: string, req: ExpressRequest): Promise<{ hits: ServiceHit[]; degraded: boolean }> {
+async function searchRightsTrack(kw: string, siteId: string | null): Promise<{ hits: ServiceHit[]; degraded: boolean }> {
   let siteCode: string | undefined;
-  if (req.user?.siteId) {
-    const { rows } = await pool.query(`SELECT code FROM site WHERE site_id = $1 LIMIT 1`, [req.user.siteId]);
+  if (siteId) {
+    const { rows } = await pool.query(`SELECT code FROM site WHERE site_id = $1 LIMIT 1`, [siteId]);
     siteCode = rows[0]?.code;
   }
   const { apikey } = await resolveHjkConfig(siteCode);
@@ -390,7 +390,12 @@ async function searchRightsTrack(kw: string, req: ExpressRequest): Promise<{ hit
     if (!brand) continue;
     // 条目名 / 品牌名 / 分组名（type）任一命中即算——搜「餐饮美食」可捞出整组品牌
     const type = String(x.type ?? '') || '其他';
-    if (!brand.includes(kw) && !type.includes(kw) && !`${brand} ${spec}`.includes(kw)) continue;
+    // 双向字面命中（2026-10-07 真机败因）：kw 在名内（「视频」→ 腾讯视频）之外，
+    //   名在 kw 内也要算——「腾讯视频会员」「腾讯视频VIP」包含「腾讯视频」，单向匹配必空
+    if (
+      !brand.includes(kw) && !type.includes(kw) && !`${brand} ${spec}`.includes(kw)
+      && !(brand.length >= 2 && kw.includes(brand))
+    ) continue;
     out.push({
       track: 'rights',
       name: brand + (spec ? ` ${spec}` : ''),
@@ -407,6 +412,131 @@ async function searchRightsTrack(kw: string, req: ExpressRequest): Promise<{ hit
     });
   }
   return { hits: out.slice(0, 20), degraded: false };
+}
+
+/** 07B 聚合核心（/service-search 路由与 chat goto_service 工具共用契约，禁重复实现轨道模型）。
+ *  siteId=null 时到店轨按 site-a 兜底（与原路由行为一致）。 */
+export async function aggregateServiceSearch(
+  kw: string,
+  siteId: string | null,
+): Promise<{
+  categories: Array<{ code: string; name: string; count: number }>;
+  services: ServiceHit[];
+  rights: ServiceHit[];
+  selfItems: ServiceHit[];
+  rightsDegraded: boolean;
+}> {
+  // ── 轨道 B：分类命中（「美团」命中 meituan 分类，回填该分类全部服务）──────────
+  const catRows = await pool.query(
+    `SELECT c.code, c.name, c.sort, COUNT(b.id)::text AS cnt
+       FROM brand_category c
+       JOIN brand_action_cfg b ON b.category = c.code AND b.enabled = TRUE
+      WHERE c.name ILIKE '%' || $1 || '%' OR c.code ILIKE '%' || $1 || '%'
+      GROUP BY c.code, c.name, c.sort
+      ORDER BY c.sort`,
+    [kw],
+  );
+  const catCodes = new Set((catRows.rows as Array<{ code: string }>).map((r) => r.code));
+
+  // ── 轨道 A：品牌字面命中（分类内服务若已随B 全量返回，这里跳过避免重复）────────
+  const brandRows = await pool.query(
+    `SELECT b.brand_code, b.name, b.category, c.name AS cat_name,
+            COALESCE(b.miniapp_cfg->>'mode', b.action_type) AS mode, b.icon
+       FROM brand_action_cfg b
+       JOIN brand_category c ON c.code = b.category
+      WHERE b.enabled = TRUE
+        AND (b.name ILIKE '%' || $1 || '%' OR $1 ILIKE '%' || b.name || '%')
+      ORDER BY CASE WHEN b.name = $1 THEN 0 ELSE 1 END, c.sort, b.id
+      LIMIT 20`,
+    [kw],
+  );
+
+  // 轨道 B 的展开明细：分类命中的服务全量拉出（未在轨道 A 出现的也算，这是「美团」的关键增量）
+  const expandedRows = catCodes.size
+    ? await pool.query(
+        `SELECT b.brand_code, b.name, b.category, c.name AS cat_name,
+                COALESCE(b.miniapp_cfg->>'mode', b.action_type) AS mode, b.icon
+           FROM brand_action_cfg b
+           JOIN brand_category c ON c.code = b.category
+          WHERE b.enabled = TRUE AND b.category = ANY($1::text[])
+          ORDER BY c.sort, b.id`,
+        [[...catCodes]],
+      )
+    : { rows: [] as Array<Record<string, unknown>> };
+
+  const services: ServiceHit[] = [];
+  const seen = new Set<string>();
+  for (const r of brandRows.rows as Array<Record<string, unknown>>) {
+    const key = `${r.category}::${r.brand_code}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    services.push({
+      track: (r.mode === 'plugin' || r.mode === 'halfscreen' || r.mode === 'act' ? r.mode : 'launch') as ServiceTrack,
+      brand_code: String(r.brand_code),
+      brand_name: String(r.name),
+      name: String(r.name),
+      cat_name: String(r.cat_name),
+      cat_code: String(r.category),
+      mode: String(r.mode),
+      icon: String(r.icon ?? ''),
+    });
+  }
+  for (const r of expandedRows.rows as Array<Record<string, unknown>>) {
+    const key = `${r.category}::${r.brand_code}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    services.push({
+      track: (r.mode === 'plugin' || r.mode === 'halfscreen' || r.mode === 'act' ? r.mode : 'launch') as ServiceTrack,
+      brand_code: String(r.brand_code),
+      brand_name: String(r.name),
+      name: String(r.name),
+      cat_name: String(r.cat_name),
+      cat_code: String(r.category),
+      mode: String(r.mode),
+      icon: String(r.icon ?? ''),
+      // 分类展开来的项前端默认折叠（头部显示「共 N 个服务」，默认 6 条 + 展开全部）
+      via_category: true,
+    });
+  }
+
+  // ── 轨道 C：fasttype 权益（蚂蚁积分口径）────────────────────────────────
+  const { hits: rights, degraded: rightsDegraded } = await searchRightsTrack(kw, siteId).catch(
+    // 权益轨异常不阻塞他轨（设计如此），但必须标记降级 → 不写结果缓存
+    () => ({ hits: [] as ServiceHit[], degraded: true }),
+  );
+
+  // ── 轨道 D：到店团购（唯一自有数据面；价格/图从 skus/main_imgs jsonb 取，与 /api/goods/self/list 同款契约）
+  const selfRows = await pool.query(
+    `SELECT goods_id, title, main_imgs, skus
+       FROM self_goods
+      WHERE site_id = COALESCE($1::uuid, (SELECT site_id FROM site WHERE code='site-a'))
+        AND status = 'on'
+        AND title ILIKE '%' || $2 || '%'
+      ORDER BY created_at DESC
+      LIMIT 10`,
+    [siteId, kw],
+  );
+  const selfItems: ServiceHit[] = (selfRows.rows as Array<Record<string, unknown>>).map((r) => {
+    const skus = Array.isArray(r.skus) ? (r.skus as { price?: number }[]) : [];
+    const prices = skus.map((k) => Number(k.price)).filter((n) => Number.isFinite(n));
+    const imgs = Array.isArray(r.main_imgs) ? (r.main_imgs as string[]) : [];
+    return {
+      track: 'self' as const,
+      goods_id: String(r.goods_id),
+      name: String(r.title),
+      pic: imgs[0] ?? '',
+      price: prices.length ? Math.min(...prices) : undefined,
+    };
+  });
+
+  // 分类命中摘要：头部「共 N 个服务」
+  const categories = catRows.rows.map((r) => ({
+    code: r.code,
+    name: r.name,
+    count: Number(r.cnt),
+  }));
+
+  return { categories, services, rights, selfItems, rightsDegraded };
 }
 
 siteRouter.get('/service-search', optionalUser, async (req, res, next) => {
@@ -426,115 +556,7 @@ siteRouter.get('/service-search', optionalUser, async (req, res, next) => {
       return;
     }
 
-    // ── 轨道 B：分类命中（「美团」命中 meituan 分类，回填该分类全部服务）──────────
-    const catRows = await pool.query(
-      `SELECT c.code, c.name, c.sort, COUNT(b.id)::text AS cnt
-         FROM brand_category c
-         JOIN brand_action_cfg b ON b.category = c.code AND b.enabled = TRUE
-        WHERE c.name ILIKE '%' || $1 || '%' OR c.code ILIKE '%' || $1 || '%'
-        GROUP BY c.code, c.name, c.sort
-        ORDER BY c.sort`,
-      [kw],
-    );
-    const catCodes = new Set((catRows.rows as Array<{ code: string }>).map((r) => r.code));
-
-    // ── 轨道 A：品牌字面命中（分类内服务若已随B 全量返回，这里跳过避免重复）────────
-    const brandRows = await pool.query(
-      `SELECT b.brand_code, b.name, b.category, c.name AS cat_name,
-              COALESCE(b.miniapp_cfg->>'mode', b.action_type) AS mode, b.icon
-         FROM brand_action_cfg b
-         JOIN brand_category c ON c.code = b.category
-        WHERE b.enabled = TRUE
-          AND (b.name ILIKE '%' || $1 || '%' OR $1 ILIKE '%' || b.name || '%')
-        ORDER BY CASE WHEN b.name = $1 THEN 0 ELSE 1 END, c.sort, b.id
-        LIMIT 20`,
-      [kw],
-    );
-
-    // 轨道 B 的展开明细：分类命中的服务全量拉出（未在轨道 A 出现的也算，这是「美团」的关键增量）
-    const expandedRows = catCodes.size
-      ? await pool.query(
-          `SELECT b.brand_code, b.name, b.category, c.name AS cat_name,
-                  COALESCE(b.miniapp_cfg->>'mode', b.action_type) AS mode, b.icon
-             FROM brand_action_cfg b
-             JOIN brand_category c ON c.code = b.category
-            WHERE b.enabled = TRUE AND b.category = ANY($1::text[])
-            ORDER BY c.sort, b.id`,
-          [[...catCodes]],
-        )
-      : { rows: [] };
-
-    const services: ServiceHit[] = [];
-    const seen = new Set<string>();
-    for (const r of brandRows.rows) {
-      const key = `${r.category}::${r.brand_code}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      services.push({
-        track: (r.mode === 'plugin' || r.mode === 'halfscreen' || r.mode === 'act' ? r.mode : 'launch') as ServiceTrack,
-        brand_code: r.brand_code,
-        brand_name: r.name,
-        name: r.name,
-        cat_name: r.cat_name,
-        cat_code: r.category,
-        mode: r.mode,
-        icon: r.icon ?? '',
-      });
-    }
-    for (const r of expandedRows.rows) {
-      const key = `${r.category}::${r.brand_code}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      services.push({
-        track: (r.mode === 'plugin' || r.mode === 'halfscreen' || r.mode === 'act' ? r.mode : 'launch') as ServiceTrack,
-        brand_code: r.brand_code,
-        brand_name: r.name,
-        name: r.name,
-        cat_name: r.cat_name,
-        cat_code: r.category,
-        mode: r.mode,
-        icon: r.icon ?? '',
-        // 分类展开来的项前端默认折叠（头部显示「共 N 个服务」，默认 6 条 + 展开全部）
-        via_category: true,
-      });
-    }
-
-    // ── 轨道 C：fasttype 权益（蚂蚁积分口径）────────────────────────────────
-    const { hits: rights, degraded: rightsDegraded } = await searchRightsTrack(kw, req).catch(
-      // 权益轨异常不阻塞他轨（设计如此），但必须标记降级 → 不写结果缓存
-      () => ({ hits: [] as ServiceHit[], degraded: true }),
-    );
-
-    // ── 轨道 D：到店团购（唯一自有数据面；价格/图从 skus/main_imgs jsonb 取，与 /api/goods/self/list 同款契约）
-    const selfRows = await pool.query(
-      `SELECT goods_id, title, main_imgs, skus
-         FROM self_goods
-        WHERE site_id = COALESCE($1::uuid, (SELECT site_id FROM site WHERE code='site-a'))
-          AND status = 'on'
-          AND title ILIKE '%' || $2 || '%'
-        ORDER BY created_at DESC
-        LIMIT 10`,
-      [req.user?.siteId ?? null, kw],
-    );
-    const selfItems: ServiceHit[] = (selfRows.rows as Array<Record<string, unknown>>).map((r) => {
-      const skus = Array.isArray(r.skus) ? (r.skus as { price?: number }[]) : [];
-      const prices = skus.map((k) => Number(k.price)).filter((n) => Number.isFinite(n));
-      const imgs = Array.isArray(r.main_imgs) ? (r.main_imgs as string[]) : [];
-      return {
-        track: 'self' as const,
-        goods_id: String(r.goods_id),
-        name: String(r.title),
-        pic: imgs[0] ?? '',
-        price: prices.length ? Math.min(...prices) : undefined,
-      };
-    });
-
-    // 分类命中摘要：头部「共 N 个服务」
-    const categories = catRows.rows.map((r) => ({
-      code: r.code,
-      name: r.name,
-      count: Number(r.cnt),
-    }));
+    const { categories, services, rights, selfItems, rightsDegraded } = await aggregateServiceSearch(kw, req.user?.siteId ?? null);
 
     res.json({
       ok: true,
