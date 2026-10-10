@@ -149,6 +149,7 @@ curl -s https://<域名>/healthz
 
 ## 演示站点https://mk.fyt360.cn/   账户：test 密码:12345678
 QQ群：712218340
+<img width="430" height="430" alt="你我寻缘小程序二维码" src="https://github.com/user-attachments/assets/4940c60a-78e5-4453-89f4-e00e60f795d5" />
 
 ## 开发铁律：上游调用与图标
 
