@@ -122,7 +122,11 @@ export function extractLink(platform: string, payload: Record<string, unknown>):
           'CONVERT_EMPTY',
         );
       }
-      const tkl = d.coupon_full_tpwd ? String(d.coupon_full_tpwd) : undefined;
+      // 口令入参形态字段名不同（2026-10-09 D先生 实测响应）：数字商品 id 形态=coupon_full_tpwd，
+      // 口令形态无该字段 → 取 cps_full_tpwd（D先生 钦定），再兜 tkl（响应中两值相同）。
+      // 之前只认 coupon_full_tpwd → 口令转链 tkl 缺失，卡片口令行退化展示长链接。
+      const tklRaw = d.coupon_full_tpwd ?? d.cps_full_tpwd ?? d.tkl;
+      const tkl = tklRaw ? String(tklRaw) : undefined;
       return tkl ? { url, tkl } : { url };
     }
     case 'pdd': {
@@ -231,3 +235,62 @@ linkRouter.get('/self/launch', async (req: Request, res: Response, next: NextFun
 
 // optionalUser：登录态可选——有 token 解析出 user 注入推广位，无 token 匿名转链
 linkRouter.get('/:platform/union', optionalUser, unionHandler);
+
+// ── 万能转链（GET /v2/api/open/union，2026-10-09 D先生 提供官方能力）──────────
+// text 整段透传（商品链接/口令/短链/文案均可），平台判定权交上游，响应 pf 标识平台。
+// pf 平台码与 ordersync PF_TYPE 同源："1"=jd "2"=pdd "3"=tb 6=vip 7=美团分销。
+// ⚠️ extend_id 必传（probe-union5 隔离矩阵实锤：缺失时 jd 全形态 fail「京东转链失败」，补上即通；
+//    归因链路=tb/pforder 订单 extend_id 原样回流，ordersync 据此归因——D先生 2026-10-09 钦定口径）。
+// 实测覆盖：jd u.jd.com/3.cn口令文案/item.jd.com数字sku/itemId串、tb 淘口令、pdd 二合一、
+//           vip t.vip.com 短链、美团 dpurl.cn（pf=7 → 美团官方容器 wxde8ac0a21135c07d）。
+// 佣金：响应无 commission 字段（唯一例外=tb 旧接口 getunionurl），走此通道返利行隐藏（不编数）。
+
+const PF_PLATFORM: Record<string, string> = { '1': 'jd', '2': 'pdd', '3': 'tb', '6': 'vip', '7': 'meituan' };
+
+export interface UnionConvertResult {
+  platform: string;
+  url: string;
+  tkl?: string;
+  miniAppId?: string;
+  miniPath?: string;
+  /** 仅 vip：官方小程序内页路径（urlInfoList[0].vipWxUrl，与旧通道同构） */
+  vipWxUrl?: string;
+  goods?: { title: string; price: number | null; finalPrice: number | null; coupon: number | null; pic: string };
+}
+
+/** 万能转链：text 整段透传 + extend_id 归因（user_id），失败 HttpError 带上游人话 errmsg */
+export async function unionConvert(text: string, extendId: string, apikey: string): Promise<UnionConvertResult> {
+  const { payload } = await hjkCall('open/union', { text, extend_id: extendId }, apikey, 'v2', { keepBizError: true });
+  const arr = Array.isArray(payload.data) ? (payload.data as Record<string, unknown>[]) : [];
+  const d = arr.find((x) => x?.status === 'ok') ?? arr[0];
+  if (!d || d.status !== 'ok') {
+    const errmsg = String(d?.errmsg ?? payload.msg ?? payload.message ?? '上游转链失败').slice(0, 120);
+    throw new HttpError(502, 'CONVERT_EMPTY', errmsg);
+  }
+  const url = String(d.url ?? d.shorturl ?? '');
+  if (!url) throw new HttpError(502, 'CONVERT_EMPTY', '上游未返回转链结果');
+  const out: UnionConvertResult = { platform: PF_PLATFORM[String(d.pf ?? '')] ?? 'jd', url };
+  const tkl = String(d.tkl ?? '');
+  if (tkl) out.tkl = tkl;
+  const we = (d.we_app_info ?? null) as Record<string, unknown> | null;
+  if (we?.app_id && we?.path) {
+    out.miniAppId = String(we.app_id);
+    out.miniPath = String(we.path);
+  }
+  const list = (d.urlInfoList ?? []) as Record<string, unknown>[];
+  const vipWxUrl = list[0]?.vipWxUrl ? String(list[0].vipWxUrl) : undefined;
+  if (vipWxUrl) out.vipWxUrl = vipWxUrl;
+  const g = (d.goods ?? null) as Record<string, unknown> | null;
+  const price = Number(g?.goods_price);
+  if (g?.goods_name) {
+    out.goods = {
+      title: String(g.goods_name),
+      price: Number.isFinite(price) && price > 0 ? price : null,
+      // 万能响应无券后价字段，到手=在售价（不编数）
+      finalPrice: Number.isFinite(price) && price > 0 ? price : null,
+      coupon: null,
+      pic: String(g.goods_pic ?? ''),
+    };
+  }
+  return out;
+}

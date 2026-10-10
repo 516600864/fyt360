@@ -14,15 +14,46 @@ const TAB_PAGES = new Set([
   'pages/shell/s5',
 ]);
 
+/**
+ * 分包路径兼容映射（2026-10-09 主包超 2MB 分包改造）：
+ * DB 存量（DIY 楼层/菜单配置）与服务端下发（link.ts 卡片路径）仍存旧版主包路径
+ * （旧客户端照常工作），新客户端在此统一翻译成分包路径。
+ * 规则与 pages.json subPackages 严格同步；rights/index、rights/category 留主包不映射。
+ */
+const LEGACY_PAGE_MAP = {
+  'pages/goods/': 'pkg-goods/pages/goods/',
+  'pages/orders/': 'pkg-goods/pages/orders/',
+  'pages/trade/': 'pkg-goods/pages/trade/',
+  'pages/verify/': 'pkg-goods/pages/verify/',
+  'pages/activity/': 'pkg-goods/pages/activity/',
+  'pages/mine/': 'pkg-user/pages/mine/',
+  'pages/profile/': 'pkg-user/pages/profile/',
+  'pages/commission/': 'pkg-user/pages/commission/',
+};
+const RIGHTS_SUB = /^(pages\/rights\/(grade|records|levels|ingot|coupons))\b/;
+
+/** 把可能来自存量配置的页面路径解析为当前分包路径；已是新路径/主包路径原样返回 */
+export function resolvePage(url) {
+  if (typeof url !== 'string' || !url.includes('/pages/')) return url;
+  let bare = url.replace(/^\//, '');
+  for (const [oldP, newP] of Object.entries(LEGACY_PAGE_MAP)) {
+    if (bare.startsWith(oldP)) return url.replace(oldP, newP);
+  }
+  const m = bare.match(RIGHTS_SUB);
+  if (m) return url.replace(m[1], 'pkg-rights/' + m[1]);
+  return url;
+}
+
 export function handleAction(a) {
   const act = a ?? {};
   if (act.type === 'jump' && act.target === 'page' && act.value) {
-    const bare = act.value.split('?')[0].replace(/^\//, '');
+    const value = resolvePage(act.value);
+    const bare = value.split('?')[0].replace(/^\//, '');
     if (TAB_PAGES.has(bare)) {
       uni.switchTab({ url: '/' + bare, fail: () => uni.showToast({ title: '页面建设中', icon: 'none' }) });
       return;
     }
-    uni.navigateTo({ url: act.value, fail: () => uni.showToast({ title: '页面建设中', icon: 'none' }) });
+    uni.navigateTo({ url: value, fail: () => uni.showToast({ title: '页面建设中', icon: 'none' }) });
     return;
   }
   if (act.type === 'jump' && act.target === 'h5' && act.value) {
@@ -44,8 +75,10 @@ export function handleAction(a) {
     request(`/api/site/brand-launch?code=${encodeURIComponent(act.value)}`)
       .then((d) => {
         if (d.mode === 'plugin' && d.path) {
+          // 插件分包化（2026-10-09 主包瘦身）：ordering/tg 声明在 pkg-mayi，
+          // 分包外页面不能直接跳分包内插件页 → 统一经 pkg-mayi 中转页（官方允许路径）
           uni.navigateTo({
-            url: d.path,
+            url: '/pkg-mayi/pages/plugin-jump?path=' + encodeURIComponent(d.path),
             fail: () => uni.showToast({ title: '插件页打开失败，请更新小程序版本', icon: 'none' }),
           });
           return;
@@ -97,7 +130,7 @@ export function handleAction(a) {
     // 活动页（决策#33）：value = 装修页 key（page-xxxx）→ 活动壳页渲染该页 published Schema
     if (/^page-[a-z0-9]{2,10}$/.test(String(act.value ?? ''))) {
       uni.navigateTo({
-        url: '/pages/activity/index?page=' + encodeURIComponent(act.value) + (act.title ? '&title=' + encodeURIComponent(act.title) : ''),
+        url: '/pkg-goods/pages/activity/index?page=' + encodeURIComponent(act.value) + (act.title ? '&title=' + encodeURIComponent(act.title) : ''),
         fail: () => uni.showToast({ title: '活动页打开失败', icon: 'none' }),
       });
     } else {

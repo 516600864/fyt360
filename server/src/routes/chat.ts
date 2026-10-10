@@ -26,7 +26,7 @@ import { chatComplete } from '../lib/llm.js';
 import { msgSecCheck } from '../lib/wechat.js';
 import { writeAudit } from '../lib/audit.js';
 import { buildListParams } from './goods.js';
-import { buildLinkParams, injectPromoter, extractLink, type LinkResult } from './link.js';
+import { buildLinkParams, injectPromoter, extractLink, unionConvert, type LinkResult, type UnionConvertResult } from './link.js';
 import { aggregateServiceSearch } from './site.js';
 import { optionalUser, requireUser } from '../middleware/auth.js';
 
@@ -110,51 +110,47 @@ function userRebate(raw: Record<string, unknown> | undefined, selfRate: number):
   return amt > 0 ? amt : null;
 }
 
-// ── L0 粘贴解析（纯正则，0 token）─────────────────────────────────────────
+// ── L0 粘贴解析（纯正则，0 token；2026-10-09 万能转链改造后缩编）───────────
+// 平台判定权交上游（open/union text 整段透传，D先生 钦定「反对狭隘启发式」）：
+//   本函数只做两件事——①认出「tb 强信号」走旧接口（唯一带佣金 commission 的通道）；
+//   ②粗判「疑似转链输入」（含 URL 或口令结构）→ 万能通道，pf 从响应拿。
+// 旧 jd 数字 sku -200 限制已解除（probe-union5 实锤：根因是 extend_id 缺失，补上全形态可转）。
 
 interface ParsedRef {
-  platform: string; params: Record<string, string>;
-  /** 原话（29C 跨平台搜词兜底：jd 3.cn 响应无商品名时取「」段） */
+  /** 万能通道 text（整段原文透传） */
+  text: string;
+  /** tb 旧接口通道参数（强信号才命中：佣金 + get_tkl 淘口令）；失败自动回落万能接口补刀 */
+  tbLegacy?: Record<string, string>;
+  /** 原话（29C 跨平台搜词兜底：响应无商品名时取「」段） */
   hint?: string;
-  /** 弱信号（结构疑似口令）：转链失败不吞消息，回落 L1.5/L2 保住搜索意图 */
+  /** 弱信号（口令结构但无 URL）：转链失败不吞消息，回落 L1.5/L2 保住搜索意图 */
   weak?: boolean;
 }
 
 function parseRef(text: string): ParsedRef | null {
   const t = text.trim();
-  // jd：仅 3.cn 短链可整链透传（type=3，实测 2026-10-07：不带尾部口令码也成功）
-  let m = t.match(/https?:\/\/3\.cn\/[^\s「」『』]+/i);
-  if (m) return { platform: 'jd', params: { goods_id: m[0], type: '3' } };
-  // jd 数字 sku：仅在有「jd/京东」提示词护航时匹配（防误伤淘口令/验证码类串），
-  //   上游 -200 materialId 不合规 → L0 段按 type!=3 给引导文案
-  if (/(jd\.com|京东)/i.test(t)) {
-    const d = t.match(/\b(\d{11,15})\b/);
-    if (d) return { platform: 'jd', params: { goods_id: d[1], type: '1' } };
-  }
-  // ── tb 淘口令判定（2026-10-08 D先生 钦定：禁狭隘枚举包裹符）─────────────────
-  // ① 强信号：tb 域链 / ￥…￥ 经典包裹 / 平台码+令牌（￥包裹、斜杠式都只是已知形态子集）
-  //    → 直接转，失败诚实收尾。
-  // ② 弱信号：淘口令核心是 9~13 位 base62 混杂令牌——大小写+数字三类齐备的随机串在
-  //    正常中文输入里几乎不出现（「iPhone15Pro」这种驼峰商品名是唯一近似源）。
-  //    结构疑似 + 淘提示词 → 试转一次，把「是不是口令」的最终裁决交给上游
-  //    （解不出回 103 系）；失败且 weak → 回落 L1.5/L2，搜索意图不被吞。
-  m = t.match(/(?:item\.taobao|detail\.tmall)\.com\/item[^#]*?\?id=(\d+)/);
-  if (m) return { platform: 'tb', params: { item_id: m[1] } };
+  if (!t) return null;
+  // ── tb 强信号：旧接口优先 ──
+  // ① tb 域链 / ￥…￥ 经典包裹 / 平台码+令牌（￥包裹、斜杠式都只是已知形态子集）
+  let m = t.match(/(?:item\.taobao|detail\.tmall)\.com\/item[^#]*?\?id=(\d+)/);
+  if (m) return { text: t, tbLegacy: { item_id: m[1] }, hint: t };
   if (/(e\.tb\.cn|m\.tb\.cn|taobao\.com|tmall\.com)/i.test(t) || /[￥¥][^￥¥]{5,}[￥¥]/.test(t)
     || /\b(?:CZ|HU|MF|FU)\d{3}[\s/·]+[A-Za-z0-9]{9,13}\b/.test(t)) {
-    return { platform: 'tb', params: { item_id: t }, hint: t };
+    return { text: t, tbLegacy: { item_id: t }, hint: t };
   }
+  // ② 弱信号：淘口令核心是 9~13 位 base62 混杂令牌（三类字符齐备的随机串在正常中文里几乎不出现）
   const tokens = t.match(/\b[A-Za-z0-9]{9,13}\b/g) ?? [];
   const tokenish = tokens.some((k) => /[A-Z]/.test(k) && /[a-z]/.test(k) && /\d/.test(k));
   if (tokenish && /(淘|taobao|tmall|口令)/i.test(t)) {
-    return { platform: 'tb', params: { item_id: t }, hint: t, weak: true };
+    return { text: t, tbLegacy: { item_id: t }, hint: t, weak: true };
   }
-  // pdd：goods_sign 在 query（mobile.yangkeduo.com/goods.html?goods_sign=XXXX）
-  m = t.match(/goods_sign=([A-Za-z0-9_-]{8,})/);
-  if (m) return { platform: 'pdd', params: { goods_sign: m[1] } };
-  // vip：detail-(\d+).vip.com 优先；有 vip 提示词时兜底纯数字 id
-  m = t.match(/detail-(\d+)\.vip\.com/) ?? (/(vip\.com|唯品)/i.test(t) ? t.match(/\b(\d{8,15})\b/) : null);
-  if (m) return { platform: 'vip', params: { goods_id: m[1], type: '1' } };
+  // ── 其余疑似转链输入 → 万能通道（整段透传，上游裁决）──
+  // URL=强信号（失败诚实收尾）；纯口令结构=弱信号（失败回落 L2 保住搜索）。
+  // jd/pdd/vip/美团全部形态（u.jd.com、3.cn、item.jd.com、p.pinduoduo.com、t.vip.com、
+  // dpurl.cn、u.ele.me、axr://…）不再逐一枚举——统一交上游识别。
+  const hasUrl = /https?:\/\/[^\s「」『』]+/i.test(t);
+  const hasToken = tokens.some((k) => /[A-Z]/.test(k) && /\d/.test(k) && k.length >= 9);
+  if (hasUrl || hasToken) return { text: t, hint: t, weak: !hasUrl };
   return null;
 }
 
@@ -166,24 +162,48 @@ function toNum(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** 转链执行（复用 link.ts 契约：白名单收集 + 必填校验 + tb get_tkl/title 加工，禁重复实现）。
- *  返货 rebate：仅上游转链响应自带佣金的平台能给（实测仅 tb 的 data.commission；
- *  jd/pdd/vip 转链响应无佣金字段 → null，前端隐藏该行，绝不编数）。
- *  goods：tb 响应自带 goods_name/price/price_after/discount/picurl（29C 大登机牌信息列）。 */
+/** 转链执行（2026-10-09 万能转链改造）：
+ *  - tb 强信号 → 旧接口 getunionurl（唯一带 commission 的通道，返利展示不丢），
+ *    失败自动回落万能接口补刀（上游可能解出旧接口拒收的失效口令）；
+ *  - 其余一切 → 万能接口 text 整段透传（pf 响应驱动，extend_id=userId 归因）。
+ *  返货 rebate：仅旧 tb 通道有上游佣金；万能通道响应无佣金字段 → null（前端隐藏，绝不编数）。
+ *  goods：tb 旧响应自带全套；万能响应带 goods_name/goods_price/goods_pic（jd/pdd 实测）。 */
 async function doConvert(
-  platform: string, query: Record<string, string>, userId: number,
-): Promise<{ link: LinkResult; rebate: number | null; goods?: ConvertGoods }> {
+  ref: ParsedRef, userId: number,
+): Promise<{ link: LinkResult & { platform: string }; rebate: number | null; goods?: ConvertGoods }> {
   const cfg = await resolveHjkConfig(undefined);
-  const params = buildLinkParams(platform, query);
-  if (userId > 0) injectPromoter(platform, params, userId);
-  else if (platform === 'jd') params.positionid = '1';
-  const { payload } = await hjkCall(`${platform}/getunionurl`, params, cfg.apikey);
-  const link = extractLink(platform, payload);
+  if (ref.tbLegacy) {
+    try {
+      return await legacyConvert(ref.tbLegacy, userId, cfg.apikey);
+    } catch (legacyErr) {
+      // 旧接口拒绝（103 系失效等）→ 万能接口补刀；仍失败则**抛旧接口原始错误**——
+      //   旧错误带语义（103→「不支持该商品id」），万能外层只有泛化「转链失败」，
+      //   盖掉它会把诚实降级文案退化成「重试也没用」的万金油（E2E 2026-10-09 实锤）。
+      try {
+        const u = await unionConvert(ref.text, String(userId || '1'), cfg.apikey);
+        return unionToCard(u);
+      } catch {
+        throw legacyErr;
+      }
+    }
+  }
+  const u = await unionConvert(ref.text, String(userId || '1'), cfg.apikey);
+  return unionToCard(u);
+}
+
+/** 旧接口通道（tb 专属：佣金 + get_tkl 淘口令富信息） */
+async function legacyConvert(
+  params: Record<string, string>, userId: number, apikey: string,
+): Promise<{ link: LinkResult & { platform: string }; rebate: number | null; goods?: ConvertGoods }> {
+  const p = buildLinkParams('tb', params);
+  if (userId > 0) injectPromoter('tb', p, userId);
+  const { payload } = await hjkCall('tb/getunionurl', p, apikey);
+  const link = extractLink('tb', payload);
   const selfRate = await userSelfRate(userId);
   const d = (typeof payload.data === 'object' && payload.data !== null ? payload.data : {}) as Record<string, unknown>;
   const rebate = userRebate(d, selfRate);
   let goods: ConvertGoods | undefined;
-  if (platform === 'tb' && d.goods_name) {
+  if (d.goods_name) {
     goods = {
       title: String(d.goods_name),
       price: toNum(d.price),
@@ -192,7 +212,16 @@ async function doConvert(
       pic: String(d.picurl ?? ''),
     };
   }
-  return { link, rebate, goods };
+  return { link: { platform: 'tb', ...link }, rebate, goods };
+}
+
+/** 万能响应 → 登机牌数据（pf 平台由响应驱动；返利字段上游不给 → null） */
+function unionToCard(u: UnionConvertResult): { link: LinkResult & { platform: string }; rebate: number | null; goods?: ConvertGoods } {
+  return {
+    link: { platform: u.platform, url: u.url, tkl: u.tkl, miniAppId: u.miniAppId, miniPath: u.miniPath, vipWxUrl: u.vipWxUrl },
+    rebate: null,
+    goods: u.goods,
+  };
 }
 
 // ── 29C 同款跨平台出票 ─────────────────────────────────────────────────────
@@ -253,13 +282,13 @@ const INTENT_SYSTEM = `你是本站 AI 助手。用户消息进来后，你必�
 
 搜商品：{"tool":"search_goods","args":{"platform":"jd|tb|pdd|vip","keyword":"关键词"}}
 站内服务：{"tool":"goto_service","args":{"name":"品牌或服务名"}}
-转链接：{"tool":"convert_link","args":{"platform":"jd|tb|pdd|vip","ref":"商品id或参数"}}
+转链接：{"tool":"convert_link","args":{"ref":"用户提供的链接/口令/文案原文整段"}}
 寒暄兜底：{"tool":"chit_chat","args":{"reply":"50字内的简短友好回复"}}
 
 规则：
 1. 用户想找优惠/商品/券 → search_goods（platform 按常识选，不确定选 jd）。
 2. 用户提到点餐/外卖/打车/看电影/买电影票/充会员/充视频VIP/领红包等生活服务或权益 → goto_service，name 必须用用户原话里的词（如「美团外卖」「电影票」「腾讯视频」），禁止自行改写成别的品牌名。
-3. 用户给了链接或口令要转链 → convert_link（能提取 id 就填）。
+3. 用户给了链接、口令或带下单链接的文案要转链 → convert_link（ref=原话整段，平台识别由转链服务自行完成）。
 4. 元宝/积分兑换/提现/改密码等站内账户操作 → chit_chat 回复引导去「我的」页。注意：充视频VIP、买会员属于权益服务（走规则2），不是账户操作。
 5. 闲聊问候 → chit_chat。reply 不编造价格、佣金、库存。`;
 
@@ -415,26 +444,30 @@ async function toolConvertLink(
     sseWrite(res, 'text_delta', { t: tip });
     return { kind: 'text', content: tip, meta: { layer: 'L2-unparsed' } };
   }
-  const { link, rebate, goods } = await doConvert(ref.platform, ref.params, userId);
-  // link 内嵌 platform（extractLink 不带平台字段，前端 pcardMeta/platformEn 吃
+  const { link, rebate, goods } = await doConvert(ref, userId);
+  // link 内嵌 platform（万能通道 pf 响应驱动；前端 pcardMeta/platformEn 吃
   //   m.link.platform → 真机双 UNDEFINED，D先生 2026-10-08 实锤）
-  const linkFull = { platform: ref.platform, ...link, rebate };
-  sseWrite(res, 'intent', { tool: 'convert_link', platform: ref.platform, layer: parsed ? 'L0' : 'L2' });
-  sseWrite(res, 'card', { kind: 'parse_card', platform: ref.platform, link: linkFull, goods: goods ?? null });
+  const linkFull = { ...link, rebate };
+  sseWrite(res, 'intent', { tool: 'convert_link', platform: link.platform, layer: parsed ? 'L0' : 'L2' });
+  sseWrite(res, 'card', { kind: 'parse_card', platform: link.platform, link: linkFull, goods: goods ?? null });
   // 29C 同款跨平台出票：有商品名才搜（jd 3.cn 短链响应无商品信息 → 跳过）；
-  // tb 口令文案兜底取「」商品名段（上游响应缺 goods_name 时仍可搜）
-  const kwSrc = goods?.title ?? ref.hint ?? String(ref.params.item_id ?? '');
+  // tb 口令文案兜底取「」商品名段（上游响应缺 goods_name 时仍可搜）。
+  // 非商品门闸（2026-10-09 D先生 实锤：tb 签到口令转链成功但响应无 goods_name，整段口令文案
+  //   「淘宝签到领福利」被当关键词全平台搜出不相干「同款」）→ 旧接口路径以响应有无 goods_name
+  //   判商品；万能路径 hint 兜底保留（jd 3.cn 短链无 goods 但确是商品，29C 钦定行为不误伤）。
+  const allowCross = ref.tbLegacy ? !!goods : true;
+  const kwSrc = goods?.title ?? ref.hint ?? ref.text;
   const kw = cleanKeyword(kwSrc);
   let cross: CrossItem[] = [];
-  if (kw.length >= 4) {
-    cross = await crossPlatformGoods(kw, ref.platform, userId);
+  if (allowCross && kw.length >= 4) {
+    cross = await crossPlatformGoods(kw, link.platform, userId);
     if (cross.length) sseWrite(res, 'card', { kind: 'cross_list', items: cross });
   }
   return {
-    kind: 'parse_card', content: `已转链（${ref.platform}）`,
+    kind: 'parse_card', content: `已转链（${link.platform}）`,
     // meta 存全量（link/goods/cross）→ 历史回看原样重建登机牌（旧版只存平台+返利，
     //   历史卡被降级成光秃秃「已转链（tb）」文本，D先生 2026-10-08 实锤）
-    meta: { platform: ref.platform, rebate, goods: goods ?? null, link: linkFull, cross },
+    meta: { platform: link.platform, rebate, goods: goods ?? null, link: linkFull, cross },
   };
 }
 
@@ -533,29 +566,21 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
       result = { kind: 'service_card', content: `直达服务：${chip.name}`, meta: chip };
     }
 
-    // ── L0 粘贴解析 ──
+    // ── L0 粘贴解析（2026-10-09 万能转链改造：平台判定权交上游，jd 数字sku限制解除）──
     if (!result && message) {
       const parsed = parseRef(message);
       if (parsed) {
-        parsed.hint = message; // 29C 跨平台搜词兜底源（原话含「」商品名段）
-        // ⛔ 实测边界（2026-10-07 探针）：jd item.jd.com 数字 sku 上游 -200 materialId
-        //   不合规且无反查端点——只有 3.cn 短链（type=3）可转，其余给引导文案不假转链。
-        if (parsed.platform === 'jd' && parsed.params.type !== '3') {
-          const tip = '京东商品页链接暂时转不了~ 复制 3.cn 口令短链发我，或告诉我商品名帮你搜同款券';
-          sseWrite(res, 'text_delta', { t: tip });
-          result = { kind: 'text', content: tip, meta: { layer: 'L0-jd-limit' } };
-        } else {
-          try {
-            result = await toolConvertLink(res, {}, userId, parsed);
-          } catch (e) {
-            // 弱信号（结构疑似口令）：转链失败不吞消息 → 置空回落 L1.5/L2 保住搜索意图
-            //   （如「淘宝上的 iPhone15Pro 值得买吗」被疑似后试转 103，仍应正常走搜索）；
-            //   强信号（显式链接/包裹）失败则诚实收尾，避免 L2 对死链瞎搜
-            if (!parsed.weak) {
-              const tip = convertFailTip(e);
-              sseWrite(res, 'text_delta', { t: tip });
-              result = { kind: 'text', content: tip, meta: null };
-            }
+        parsed.hint = parsed.hint ?? message; // 29C 跨平台搜词兜底源（原话含「」商品名段）
+        try {
+          result = await toolConvertLink(res, {}, userId, parsed);
+        } catch (e) {
+          // 弱信号（口令结构无 URL）：转链失败不吞消息 → 置空回落 L1.5/L2 保住搜索意图
+          //   （如「淘宝上的 iPhone15Pro 值得买吗」被疑似后试转 103，仍应正常走搜索）；
+          //   强信号（显式链接/包裹）失败则诚实收尾，避免 L2 对死链瞎搜
+          if (!parsed.weak) {
+            const tip = convertFailTip(e);
+            sseWrite(res, 'text_delta', { t: tip });
+            result = { kind: 'text', content: tip, meta: null };
           }
         }
       }
@@ -592,7 +617,7 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
       const intent = await llmIntent(history, message);
       if (!intent) {
         // L3 兜底（0 token，不重试）
-        const fallback = '这句话我还没学会~ 你可以试试：搜个商品（「帮我找瑞幸 9.9」）、贴个商品链接让我转链，或者点下面的快捷服务。';
+        const fallback = '这句话我还没学会~ 你可以试试：搜个商品（「女士防风外套」）、贴个商品链接让我转链，或者点下面的快捷服务。';
         sseWrite(res, 'text_delta', { t: fallback });
         result = { kind: 'text', content: fallback, meta: { layer: 'L3' } };
       } else {

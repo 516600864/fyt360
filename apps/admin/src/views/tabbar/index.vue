@@ -154,8 +154,9 @@ const PAGES = [
   { label: '生活服务', value: 'life' },
   { label: '我的订单', value: 'orders' },
   { label: '我的', value: 'mine' },
+  { label: 'AI 管家', value: 'chat' },
 ];
-const EMOJIS = { home: ['🏠', '🏡'], rights: ['👑', '💝'], life: ['🧭', '🧭'], orders: ['📋', '📚'], mine: ['👤', '🙋'] };
+const EMOJIS = { home: ['🏠', '🏡'], rights: ['👑', '💝'], life: ['🧭', '🧭'], orders: ['📋', '📚'], mine: ['👤', '🙋'], chat: ['🤖', '💬'] };
 /** FAB 动作目标（站内页面任选；search=07b 全站搜索，端上 navigateTo，home 走 switchTab） */
 const FAB_TARGETS = [
   { label: '全站搜索（07b·默认）', value: 'search' },
@@ -164,6 +165,7 @@ const FAB_TARGETS = [
   { label: '生活服务', value: 'life' },
   { label: '我的订单', value: 'orders' },
   { label: '我的', value: 'mine' },
+  { label: 'AI 管家', value: 'chat' },
 ];
 /** emoji 直选集（不上传图片时可直接选，决策#28 端上回退链：图片 → 表情 → 名称首字） */
 const EMOJI_SET = ['🏠', '🎁', '📋', '👤', '⭐', '🛒', '💳', '🎯', '🔥', '📱', '🎫', '💎', '🏪', '🧭', '🙋'];

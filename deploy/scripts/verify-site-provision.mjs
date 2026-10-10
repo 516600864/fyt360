@@ -321,6 +321,18 @@ section('2C  站点管理员：选站后直达凭据开通');
     ok(typeof rows[0]?.provisioned === 'boolean', '⛔ provisioned 是布尔值不是 null（LEFT JOIN NULL 陷阱）', `type=${typeof rows[0]?.provisioned}`);
     ok(rows[0]?.status === 'pending', '新建站状态为 pending', rows[0]?.status);
 
+    // 决策 #48：小程序专属包自助下载（模板实时注入，appid 真相源=wechat_mini 凭据）
+    const pkgA = await fetch(`${BASE}/api/admin/sites/site-a/miniprogram`, { headers: { Authorization: `Bearer ${token}` } });
+    const pkgBuf = Buffer.from(await pkgA.arrayBuffer());
+    ok(pkgA.status === 200 && pkgBuf.subarray(0, 2).toString() === 'PK', '⛔ 平台超管下载 site-a 包（模板注入，PK 头）', `HTTP ${pkgA.status} ${pkgBuf.length}B`);
+    ok(pkgBuf.length > 100_000, '站点包体积正常（非空壳）', `${pkgBuf.length}B`);
+    ok((pkgA.headers.get('content-disposition') ?? '').includes('miniprogram-site-a.zip'), 'Content-Disposition 下载文件名正确', pkgA.headers.get('content-disposition') ?? '无');
+    const pkgX = await fetch(`${BASE}/api/admin/sites/site-a/miniprogram`, { headers: mh });
+    ok(pkgX.status === 403, '⛔ 跨站下载被拒（站点隔离，assertSiteAccess）', `HTTP ${pkgX.status}`);
+    const pkgTmp = await fetch(`${BASE}/api/admin/sites/${TMP_CODE}-mgr/miniprogram`, { headers: mh });
+    const pkgTj = await pkgTmp.json().catch(() => ({}));
+    ok(pkgTmp.status === 409 && pkgTj?.code === 'SITE_MINI_NOT_CONFIGURED', '⛔ 未配小程序凭据的站返回 409 SITE_MINI_NOT_CONFIGURED（凭据开通前置语义锁）', `HTTP ${pkgTmp.status} ${pkgTj?.code}`);
+
     // 该账号作为负责人，能读屏 52（不只是能写）
     const g = await fetch(`${BASE}/api/admin/sites/provision/${sid}`, { headers: mh });
     ok(g.status === 200, '负责人可读屏 52 总览', `HTTP ${g.status}`);

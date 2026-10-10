@@ -255,17 +255,30 @@
         </section>
       </div>
 
-      <!-- 开通状态速览（admin-52 设计稿底部五列总览）。
+      <!-- 开通检查清单（admin-52 设计稿 1:1 2026-10-09 重导版：标题+右侧注+chips 状态副文案+下载成功条）。
            ⚠️ 判定口径按决策 #44：白名单门控只认蚂蚁星球；此处如实展示五块配置完整性。 -->
       <div class="overview">
-        <div class="ov-title">开通状态速览</div>
+        <div class="ov-head">
+          <div class="ov-title">开通检查清单</div>
+          <span class="ov-note">仅「蚂蚁星球 apikey」通过即可开通；公众号仅在做 H5 时必需，其余可后补</span>
+        </div>
         <div class="ov-grid">
           <div v-for="g in info.groups" :key="g.key" class="ov-cell">
-            <span class="ov-name">{{ g.title }}</span>
-            <span class="ov-state" :class="g.configured ? 'ok' : 'no'">
-              {{ g.configured ? '已配置' : '未配置' }}
-            </span>
+            <span class="ov-name">{{ OV_NAME[g.key] ?? g.title }}</span>
+            <span class="ov-state" :class="ovState(g)">{{ ovSub(g) }}</span>
           </div>
+        </div>
+
+        <!-- 决策 #48 下载入口（admin-52 设计稿：汇总卡底部全宽成功条）。
+             展示条件 = 已开通 且 小程序凭据已配置——appid 是服务端出包注入的真相源，
+             缺了服务端也 409 SITE_MINI_NOT_CONFIGURED，条子亮着就是许诺能下载。 -->
+        <div v-if="provisioned && group('wechat_mini').configured" class="pkg-bar">
+          <span class="pkg-check">✓</span>
+          <div class="pkg-text">
+            <b>已开通 · 小程序安装包就绪</b>
+            <span>凭据开通完成即生成安装包，可反复下载（每次下载实时注入本站凭据；模板随平台部署刷新<template v-if="pkgVersion.version">，当前模板 {{ pkgVersion.version }}</template>）；下载后用微信开发者工具导入并上传发布</span>
+          </div>
+          <el-button class="pkg-btn" :loading="pkgLoading" @click="downloadPkg">下载小程序包</el-button>
         </div>
       </div>
     </template>
@@ -294,6 +307,39 @@ const pay = reactive({ mch_id: '', mch_key: '', serial_no: '', cert: '', callbac
 const kf = reactive({ corp_id: '', kf_url: '', active: false });
 
 const group = (key) => info.value.groups.find((g) => g.key === key) ?? {};
+
+/* ── 开通检查清单（admin-52 画布 2026-10-09 重导版 1:1）── */
+/** chips 显示名：画布用短名（服务端 title 是全称，别处可能在用，不动服务端） */
+const OV_NAME = {
+  mayixingqiu: '蚂蚁星球 apikey',
+  wechat_mini: '小程序 appid',
+  wechat_mp: '微信公众号',
+  site_payment: '微信支付商户',
+  kf: '企微客服',
+};
+/** chips 副文案：画布绘制了「未配置态后果」与蚂蚁「连通通过」，其余状态按同模式如实补全 */
+function ovSub(g) {
+  if (g.key === 'mayixingqiu') {
+    if (!g.configured) return '未配置 · 站点无法开通';
+    if (g.test_status === 'passed') return '已配置 · 连通通过';
+    if (g.test_status === 'failed') return '已配置 · 连通失败';
+    return '已配置';
+  }
+  if (g.key === 'wechat_mini') return g.configured ? '已配置' : '未配置 · 暂无安装包可下';
+  if (g.key === 'wechat_mp') return g.configured ? '已配置' : '未配置 · 小程序可正常用，H5 端将无法登录';
+  if (g.key === 'site_payment') return g.configured ? '已配置' : '未配置 · 站点将无自营团购';
+  if (g.key === 'kf') return g.configured ? '已配置' : '未配置 · 客服入口将隐藏';
+  return g.configured ? '已配置' : '未配置';
+}
+/** 副文案配色：绿=就绪 / 橙=影响营收（支付）/ 灰=暂缺 / 红=蚂蚁连通失败 */
+function ovState(g) {
+  if (g.key === 'mayixingqiu') {
+    if (g.configured && g.test_status === 'failed') return 'fail';
+    return g.configured ? 'ok' : 'no';
+  }
+  if (g.key === 'site_payment') return g.configured ? 'ok' : 'warn';
+  return g.configured ? 'ok' : 'no';
+}
 /**
  * 掩码回填契约的提交侧守卫：含 '•' 的值 = 用户没改（还是回填的掩码串）→ 发空串，
  * 服务端按「沿用原值」处理。真凭据不可能含 '•'，不会误伤真实输入。
@@ -315,6 +361,50 @@ const provisioned = computed(() =>
  */
 const denied = ref('');
 
+const pkgLoading = ref(false);
+/** 模板包版本（2026-10-09 tabbar 事故后增补）：让租户自证下载到的是新包 */
+const pkgVersion = ref({ version: null, built_at: null });
+/**
+ * 决策 #48：下载本站专属小程序包（服务端按 wechat_mini 凭据实时注入 appid/SITE_CODE）。
+ * ⛔ adminApi 是 JSON 包装（r.json() 会把 zip 流吃爆），二进制必须裸 fetch + blob；
+ *   错误响应靠 content-type 识别回 JSON 语义。文件名固定 miniprogram-<code>.zip
+ *   （与端点 Content-Disposition 一致，绕开各浏览器对该头的兼容差异）。
+ * 每次下载=服务端实时重新注入生成（appid/token/项目名）；模板本体随平台部署刷新，
+ * 版本号来自模板 meta（BUILD 串），进页面即拉取展示。
+ */
+async function loadPkgMeta() {
+  try {
+    const code = info.value.site?.code;
+    if (!code) return;
+    const d = await adminApi(`/admin/sites/${code}/miniprogram/meta`);
+    pkgVersion.value = { version: d?.version ?? null, built_at: d?.built_at ?? null };
+  } catch { /* meta 拿不到不阻塞主流程，下载时端点还有双保险 */ }
+}
+
+async function downloadPkg() {
+  pkgLoading.value = true;
+  try {
+    const code = info.value.site?.code;
+    const r = await fetch(`/api/admin/sites/${code}/miniprogram`, {
+      cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('fyt_admin_token') },
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => null);
+      throw new Error(j?.message || `下载失败（HTTP ${r.status}）`);
+    }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `miniprogram-${code}.zip`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    const v = r.headers.get('X-Mini-Pkg-Version') || pkgVersion.value.version;
+    loadPkgMeta();
+    ElMessage.success(v ? `已下载模板版本 ${v}：微信开发者工具导入 → 上传 → 提审` : '安装包已开始下载：微信开发者工具导入 → 上传 → 提审');
+  } catch (e) { ElMessage.error(e.message); } finally { pkgLoading.value = false; }
+}
+
 async function load() {
   if (!siteId.value) {
     denied.value = 'noSiteId';
@@ -331,6 +421,9 @@ async function load() {
     //   提交时经 fresh() 剥离：值 == 掩码（含 •）→ 发空串，服务端按「沿用原值」处理，
     //   绝不会把掩码串当真值写库（服务端 dropMasked 二次兜底）。
     const a = group('mayixingqiu');
+    // ⛔ 2026-10-09 修潜伏 bug：模板读 ants.configured/test_status/test_message/tested_at/key_masked/has_secret，
+    //   但这里只回填过 apikey/api_secret —— 测试结果条永不渲染、「重新测试」按钮永久禁用（服务端字段一直都在）。
+    Object.assign(ants, a);
     ants.apikey = a.key_masked ?? '';
     ants.api_secret = a.secret_masked ?? '';
 
@@ -474,7 +567,7 @@ async function saveKf() {
 }
 
 watch(siteId, load);
-onMounted(load);
+onMounted(() => { load(); loadPkgMeta(); });
 </script>
 
 <style scoped>
@@ -517,19 +610,42 @@ onMounted(load);
 .pc-status.ok { color: #1f9d61; }
 .pc-status.no { color: #c2937a; }
 
-/* ── 开通状态速览（五列总览）── */
+/* ── 开通检查清单（admin-52 画布 2026-10-09 重导版）── */
 .overview { border: 1.5px dashed #e8c9d6; border-radius: 14px; padding: 12px 16px; background: #fffafc; }
-.ov-title { font-size: 13px; font-weight: 900; color: #3d2530; margin-bottom: 10px; }
+.ov-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.ov-title { font-size: 13px; font-weight: 900; color: #a31245; }
+.ov-note { font-size: 11.5px; color: #a08592; }
 .ov-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .ov-cell {
   display: flex; flex-direction: column; gap: 4px; background: #fff;
   border: 1px solid #f0dbe4; border-radius: 10px; padding: 9px 11px;
 }
 .ov-name { font-size: 12px; font-weight: 700; color: #5c3a4a; }
-.ov-state { font-size: 11.5px; font-weight: 800; }
+.ov-state { font-size: 11.5px; font-weight: 800; line-height: 1.5; }
 .ov-state.ok { color: #1f9d61; }
-.ov-state.no { color: #c2937a; }
+.ov-state.no { color: #b9a3ad; }
+.ov-state.warn { color: #c2711d; }
+.ov-state.fail { color: #c02626; }
 @media (max-width: 900px) { .ov-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* ── 小程序安装包成功条（admin-52 设计稿：汇总卡底部全宽，色值取自画布采样）── */
+.pkg-bar {
+  margin-top: 10px; display: flex; align-items: center; gap: 12px;
+  background: #f2f9f4; border-radius: 12px; padding: 13px 16px;
+}
+.pkg-check {
+  width: 22px; height: 22px; border-radius: 999px; background: #3fa45c; color: #fff;
+  font-size: 13px; font-weight: 900; display: inline-flex; align-items: center; justify-content: center;
+  flex: none;
+}
+.pkg-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pkg-text b { font-size: 13.5px; color: #262626; }
+.pkg-text span { font-size: 12px; color: #8c8c8c; line-height: 1.55; }
+.pkg-btn {
+  margin-left: auto; flex: none; border: none; color: #2c2c2f; font-weight: 800;
+  background: #ffaa1d; border-radius: 999px; padding: 10px 22px;
+}
+.pkg-btn:hover, .pkg-btn:focus { background: #ffb63d; color: #2c2c2f; }
 
 .readonly-input :deep(input) { color: #8a6b75; font-family: Consolas, monospace; font-size: 12px; }
 

@@ -47,6 +47,7 @@ Component({
         life: '/pages/rights/category',
         orders: '/pages/orders/index',
         mine: '/pages/mine/index',
+        chat: '/pages/chat/index',
       };
       var action = this.data.fab && this.data.fab.action ? this.data.fab.action : 'search';
       if (action === 'home') {

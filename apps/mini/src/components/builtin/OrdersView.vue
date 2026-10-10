@@ -152,7 +152,7 @@ export default {
       this.load();
     },
     goDetail(o) {
-      uni.navigateTo({ url: `/pages/orders/detail?id=${o.id}` });
+      uni.navigateTo({ url: `/pkg-goods/pages/orders/detail?id=${o.id}` });
     },
     goRights() {
       uni.navigateTo({ url: '/pages/rights/index', fail: () => {} });

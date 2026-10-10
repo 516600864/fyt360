@@ -148,6 +148,7 @@ curl -s https://<域名>/healthz
 可以去https://www.51skill.com/portal/api/wechat-sub-merchant-managed 调用接口申请，几分钟即可搞定。
 
 ## 演示站点https://mk.fyt360.cn/   账户：test 密码:12345678
+QQ群：712218340
 
 ## 开发铁律：上游调用与图标
 

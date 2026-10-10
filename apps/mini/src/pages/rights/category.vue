@@ -81,7 +81,7 @@ export default {
     },
     goSearch() {
       // 搜索入口统一 07B 全站搜索（D先生 规则 2026-09-30：系统内搜索默认入口均为 search-result）
-      uni.navigateTo({ url: '/pages/goods/search-result' });
+      uni.navigateTo({ url: '/pkg-goods/pages/goods/search-result' });
     },
     async load() {
       if (this._reqInFlight) return;

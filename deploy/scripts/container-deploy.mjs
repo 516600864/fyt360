@@ -2,6 +2,7 @@
 // 依赖 manager-node 的 cloudRun.deploy：打包 server 目录 → 上传 → 创建/更新版本
 import path from 'node:path';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { loadDotEnv, repoRoot } from './lib/common.mjs';
 import { createRequire } from 'node:module';
 
@@ -22,6 +23,11 @@ if (!fs.existsSync(path.join(repoRoot, 'server', 'dist', 'index.js'))) {
   console.error('[crun] server/dist 不存在，先跑 npm run build -w server');
   process.exit(1);
 }
+
+// 决策 #48：部署前生成各站点小程序专属包（server/assets/miniprogram/<code>.zip），随镜像进容器
+console.log('[crun] 生成站点小程序包 ...');
+const rExport = spawnSync(process.execPath, [path.join(repoRoot, 'deploy', 'scripts', 'export-miniprogram-assets.mjs')], { stdio: 'inherit' });
+if (rExport.status !== 0) { console.error('[crun] 站点包生成失败，中止部署'); process.exit(1); }
 
 console.log('[crun] 开始部署 fyt360-api ...');
 const res = await app.cloudrun.deploy({

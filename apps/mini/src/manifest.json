@@ -14,10 +14,13 @@
     },
     "usingComponents": true,
     "darkmode": false,
+    "permission": {
+      "scope.userLocation": {
+        "desc": "用于展示附近门店、影院与团购等本地生活服务"
+      }
+    },
     "plugins": {
-      "mayi-ordering": { "version": "latest", "provider": "wx869ff9f322c1d2f0" },
-      "mayi-movie": { "version": "latest", "provider": "wx459759608c80cf98" },
-      "mayi-tg": { "version": "latest", "provider": "wx8b412290993bf26a" }
+      "mayi-movie": { "version": "latest", "provider": "wx459759608c80cf98" }
     },
     "navigateToMiniProgramAppIdList": [
       "wx91d27dbf599dff74",

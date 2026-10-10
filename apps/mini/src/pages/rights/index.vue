@@ -165,7 +165,7 @@ export default {
     goLaunch(b) {
       // 点品牌卡 → 直接半屏呼起蚂蚁兑换（D先生 定稿：不再跳内部档位页；默认带最低价档 cid）
       // #ifndef MP-WEIXIN
-      uni.navigateTo({ url: `/pages/rights/grade?key=${encodeURIComponent(b.typeCode)}&name=${encodeURIComponent(b.typeName)}&brand=${encodeURIComponent(b.brand)}` });
+      uni.navigateTo({ url: `/pkg-rights/pages/rights/grade?key=${encodeURIComponent(b.typeCode)}&name=${encodeURIComponent(b.typeName)}&brand=${encodeURIComponent(b.brand)}` });
       return;
       // #endif
       // #ifdef MP-WEIXIN

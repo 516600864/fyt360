@@ -1,5 +1,5 @@
 <template>
-  <view class="chat-page" :style="pageTheme">
+  <view class="chat-page" :class="{ embedded }" :style="pageTheme">
     <!-- 消息流 / 空态 -->
     <scroll-view
       class="chat-body" scroll-y :scroll-top="scrollTop" scroll-with-animation
@@ -108,7 +108,9 @@
               <text class="pcard-url" selectable>{{ m.link.tkl || m.link.url }}</text>
               <text class="pcard-hint">{{ pcardHint(m) }}</text>
             </view>
-            <view class="pcard-copy" @tap="copyLink(m.link)"><text class="pcard-copy-txt">复制口令</text></view>
+            <!-- 主卡按钮（2026-10-09 二次修订 D先生）：统一「去XX」——tb 跳 H5 口令页（防剪贴板封禁），
+                 jd/pdd/vip/美团 直跳官方小程序；复制仅作极端兜底 -->
+            <view class="pcard-copy" @tap="goCardLink(m.link, m.goods)"><text class="pcard-copy-txt">去{{ platformName(m.link.platform) }}</text></view>
           </view>
         </view>
         <!-- cross-list（29C 同款跨平台出票：40 图位 + 平台标 + 到手价 + 返¥ + 去XX） -->
@@ -167,9 +169,12 @@
  * 返利数字 = 服务端按「上游佣金 × 用户等级自购比例」算好的 user_rebate，无则不渲染该行（绝不编数）。
  */
 import { API_BASE, request, getToken } from '../../utils/request.js';
-import { onGoodsTap, goUnion } from '../../core/link';
+import { onGoodsTap, goUnion, jumpConverted } from '../../core/link';
 
 export default {
+  /** embedded：壳页内嵌形态（tabbar builtin/chat，ShellView 挂载）——根容器给悬浮毛玻璃
+   *  tabbar 预留底部空间，输入栏不被盖；独立页面形态（navigateTo）无此 prop，布局不变 */
+  props: { embedded: { type: Boolean, default: false } },
   data() {
     return {
       draft: '',
@@ -184,7 +189,7 @@ export default {
       refreshing: false,
       scrollTop: 0,
       MATRIX: [
-        { title: '搜券比价', sub: '四大平台全网帮你找低价', tone: 't-pink', brands: ['淘', '京', '拼', '唯'], q: '帮我找瑞幸 9.9 的券' },
+        { title: '搜券比价', sub: '四大平台全网帮你找低价', tone: 't-pink', brands: ['淘', '京', '拼', '唯'], q: '帮我找女士防风外套' },
         { title: '转链返利', sub: '贴个口令链接就变返利价', tone: 't-gold', brands: ['链', '返'], q: '贴口令链接给我，出票变返利价~' },
         { title: '品牌点餐', sub: '麦肯瑞茶 13+ 品牌 5 折起点', tone: 't-plain', brands: ['麦', '肯', '瑞', '茶'], q: '帮我点一份肯德基' },
         { title: '电影票', sub: '热映大片折扣出票', tone: 't-softpink', brands: ['▶'], q: '帮我买电影票' },
@@ -193,20 +198,29 @@ export default {
       ],
     };
   },
+  created() {
+    // 组件形态挂载入口（tabbar builtin 壳页内嵌，ShellView v-if 直接挂本文件）；
+    // 页面形态 created 同样触发 → booted 守卫防双跑（onShow 再兜一次登录态检查）
+    this.enter();
+  },
   onShow() {
-    if (!getToken()) {
-      uni.showToast({ title: '请先登录', icon: 'none' });
-      setTimeout(() => uni.navigateBack({ fail: () => {} }), 800);
-      return;
-    }
-    if (!this.booted) {
-      this.booted = true;
-      this.sessionId = `s-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
-      this.loadBoot();
-      this.loadHistory();
-    }
+    // 页面形态入口：从后台切回时登录态可能变化（登出后再进），补一次检查
+    this.enter();
   },
   methods: {
+    enter() {
+      if (!getToken()) {
+        uni.showToast({ title: '请先登录', icon: 'none' });
+        setTimeout(() => uni.navigateBack({ fail: () => {} }), 800);
+        return;
+      }
+      if (!this.booted) {
+        this.booted = true;
+        this.sessionId = `s-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+        this.loadBoot();
+        this.loadHistory();
+      }
+    },
     async loadBoot() {
       try {
         const d = await request('/api/chat/boot');
@@ -420,7 +434,7 @@ export default {
         : '下单确认后返利自动入账';
     },
     platformEn(p) {
-      return ({ jd: 'JD', tb: 'TAOBAO', pdd: 'PDD', vip: 'VIP' })[p] || String(p).toUpperCase();
+      return ({ jd: 'JD', tb: 'TAOBAO', pdd: 'PDD', vip: 'VIP', meituan: 'MT' })[p] || String(p).toUpperCase();
     },
     /** 跨平台卡点击：按需转链 + 跳官方小程序（复用 core/link goUnion 四平台矩阵，含复制兜底） */
     goCross(x) {
@@ -431,7 +445,7 @@ export default {
       if (s?.track === 'rights') {
         if (!s?.cid) { uni.showToast({ title: '该权益暂未配置兑换档位', icon: 'none' }); return; }
         // #ifndef MP-WEIXIN
-        uni.navigateTo({ url: '/pages/rights/levels', fail: () => {} });
+        uni.navigateTo({ url: '/pkg-rights/pages/rights/levels', fail: () => {} });
         return;
         // #endif
         // #ifdef MP-WEIXIN
@@ -500,6 +514,30 @@ export default {
         uni.showToast({ title: '呼起配置未录入', icon: 'none' });
       }
     },
+    /** parse_card 主卡（2026-10-09 二次修订 D先生）：tb 跳 H5 口令页（与商详/搜索卡同款安全链路，
+     *  用已转好的 tkl 直拼、不二次转链不发新请求）；其余直跳官方小程序；复制仅极端兜底 */
+    goCardLink(link, goods) {
+      if (link.platform === 'tb') { this.goTbCard(link, goods); return; }
+      if (jumpConverted(link)) return;
+      this.copyLink(link);
+    },
+    /** tb 口令页跳转（与 core/link goUnion tb 分支同构：tkl.html 参数 title/price/rebate，
+     *  决策#21 1元=100元宝口径；rebate=自购返元宝，与卡面返¥佣金语义不同不混用） */
+    goTbCard(link, goods) {
+      const tkl = link.tkl || '';
+      if (!tkl) { this.copyLink(link); return; }
+      const price = goods?.finalPrice ?? goods?.price ?? '';
+      const rebate = price !== '' ? Math.floor(Number(price) * 100) : '';
+      const tklQs =
+        'tkl=' + encodeURIComponent(tkl) +
+        '&title=' + encodeURIComponent(goods?.title || 'FYT360 精选好物') +
+        '&price=' + encodeURIComponent(price) +
+        '&rebate=' + encodeURIComponent(rebate);
+      uni.navigateTo({
+        url: '/pages/tkl/index?url=' + encodeURIComponent(API_BASE + '/tkl.html?' + tklQs),
+        fail: () => this.copyLink(link), // 页面栈满等极端场景兜底
+      });
+    },
     copyLink(link) {
       this.copyText(link.tkl || link.url || '');
     },
@@ -527,7 +565,7 @@ export default {
       return String(s ?? '').trim().charAt(0) || '品';
     },
     platformName(p) {
-      return ({ jd: '京东', tb: '淘宝', pdd: '拼多多', vip: '唯品会' })[p] ?? p;
+      return ({ jd: '京东', tb: '淘宝', pdd: '拼多多', vip: '唯品会', meituan: '美团' })[p] ?? p;
     },
     scrollBottom() {
       setTimeout(() => { this.scrollTop = this.scrollTop > 0 ? this.scrollTop - 1 : 1; }, 50);
@@ -540,6 +578,8 @@ export default {
 
 <style scoped>
 .chat-page { display: flex; flex-direction: column; height: 100vh; background: var(--fyt-bg, #fff6e9); }
+/* 壳页内嵌（tabbar builtin）：悬浮毛玻璃 tabbar 胶囊占位 = 距底18rpx + 本体~130rpx，预留 210rpx + 安全区 */
+.chat-page.embedded { padding-bottom: calc(210rpx + env(safe-area-inset-bottom)); }
 
 .chat-body { flex: 1; min-height: 0; }
 /* 水平内边距放内层普通 view（scroll-view padding 不可靠，见模板注释） */

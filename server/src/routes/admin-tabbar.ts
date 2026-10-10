@@ -33,8 +33,8 @@ async function adminSiteId(admin: AdminJwtPayload, code: string): Promise<string
   throw new HttpError(400, '须指定站点', 'SITE_REQUIRED');
 }
 
-/** builtin 枚举：home 首页 / rights 会员权益 / life 生活服务(分类) / orders 我的订单 / mine 我的 */
-const TABBAR_BUILTIN = ['home', 'rights', 'life', 'orders', 'mine'] as const;
+/** builtin 枚举：home 首页 / rights 会员权益 / life 生活服务(分类) / orders 我的订单 / mine 我的 / chat AI管家 */
+const TABBAR_BUILTIN = ['home', 'rights', 'life', 'orders', 'mine', 'chat'] as const;
 
 async function validateTabbar(siteId: string, items: unknown): Promise<void> {
   if (!Array.isArray(items)) throw new HttpError(400, 'items 须为数组', 'BAD_ITEMS');

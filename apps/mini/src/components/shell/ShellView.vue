@@ -6,6 +6,7 @@
       <OrdersView v-else-if="builtinKey === 'orders'" />
       <RightsHome v-else-if="builtinKey === 'rights'" />
       <RightsCategory v-else-if="builtinKey === 'life'" :embedded="true" />
+      <ChatView v-else-if="builtinKey === 'chat'" :embedded="true" />
       <Placeholder v-else :emoji="builtinMeta.emoji" :title="builtinMeta.title" :desc="builtinMeta.desc" />
     </template>
     <view v-else-if="mode === 'home'" class="placeholder">
@@ -31,12 +32,14 @@
 import SchemaPage from '@/renderer/index.vue';
 import defaultHome from '@/renderer/schema/default-home.json';
 import { request } from '../../utils/request';
+import { SITE_CODE } from '../../core/bootstrap';
 import { onGoodsTap as cpsTap } from '../../core/link';
 import Placeholder from '../builtin/Placeholder.vue';
 import MineView from '../builtin/MineView.vue';
 import OrdersView from '../builtin/OrdersView.vue';
 import RightsHome from '../../pages/rights/index.vue';
 import RightsCategory from '../../pages/rights/category.vue';
+import ChatView from '../../pages/chat/index.vue';
 
 /** builtin 目标 → 占位组件文案（与 pages/rights 等独立页保持同源文案） */
 const BUILTIN_META = {
@@ -44,6 +47,7 @@ const BUILTIN_META = {
   life: { emoji: '🧭', title: '生活服务', desc: '到店美食 / 休闲娱乐 / 便捷生活一站直达' },
   orders: { emoji: '📋', title: '我的订单', desc: '订单状态与元宝明细，即将开放' },
   mine: { emoji: '👤', title: '我的', desc: '元宝、等级与邀请好友，即将开放' },
+  chat: { emoji: '🤖', title: 'AI 管家', desc: '贴口令链接就出返利票，搜券比价一句话' },
 };
 
 /**
@@ -53,7 +57,7 @@ const BUILTIN_META = {
  * 首页（Tab1）不走本组件（pages/index/index 自持 Schema 渲染）。
  */
 export default {
-  components: { SchemaPage, Placeholder, MineView, OrdersView, RightsHome, RightsCategory },
+  components: { SchemaPage, Placeholder, MineView, OrdersView, RightsHome, RightsCategory, ChatView },
   props: {
     /** tabbar 配置项：{ key, name, target: { type, value } } */
     item: { type: Object, default: null },
@@ -92,7 +96,7 @@ export default {
       this.mode = 'schema';
       this.schemaLoading = true;
       try {
-        const d = await request(`/api/site/page-schema?code=site-a&page=${encodeURIComponent(pageKey)}`);
+        const d = await request(`/api/site/page-schema?code=${SITE_CODE}&page=${encodeURIComponent(pageKey)}`);
         this.schema = d.published ? d.schema : null;
         this.theme = this.schema?.theme ?? null;
       } catch (e) {

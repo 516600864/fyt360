@@ -27,6 +27,11 @@ export async function bootstrap(_app) {
     }
     const d = await request('/api/auth/clogin', { method: 'POST', data: { site: SITE_CODE, code, invite } });
     setToken(d.token);
+    if (d.inviteCode) {
+      // 自己的邀请码（2026-10-09）：main.js 全局 onShareAppMessage 分享 path 带 ?invite= 消费，
+      // 被邀请人访问后上级=发起人（绑定走既有首页 bind-invite / 冷启 clogin 透传链路，服务端零改动）
+      try { uni.setStorageSync('fyt_invite_code', d.inviteCode); } catch (e) { /* 存储失败仅分享不带码 */ }
+    }
     console.log('[bootstrap] clogin ok, userId =', d.userId, d.isNew ? '(新用户)' : '');
   } catch (e) {
     console.warn('[bootstrap] C 端登录失败（匿名继续）', e?.message ?? e);

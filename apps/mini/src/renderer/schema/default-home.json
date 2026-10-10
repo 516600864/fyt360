@@ -8,7 +8,7 @@
       "component_id": "c-search",
       "props": {
         "logo_text": "券",
-        "placeholder": "搜索券 · 京东 / 淘宝 / 拼多多",
+        "placeholder": "搜索券 · 请输入商品名称",
         "action_text": "签到有礼",
         "action": { "type": "popup", "target": "checkin" }
       }
@@ -78,7 +78,7 @@
       "component_id": "c-brands",
       "props": {
         "title": "品牌补贴日",
-        "badge": "低至5折",
+        "badge": "低至5折起",
         "chips": [
           { "label": "麦当劳", "value": "dining_01" },
           { "label": "肯德基", "value": "dining_04" },

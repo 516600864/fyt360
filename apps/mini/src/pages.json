@@ -49,194 +49,10 @@
       }
     },
     {
-      "path": "pages/rights/grade",
-      "style": {
-        "navigationBarTitleText": "选择档位",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/rights/records",
-      "style": {
-        "navigationBarTitleText": "兑换记录",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/rights/levels",
-      "style": {
-        "navigationBarTitleText": "会员等级",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/rights/ingot",
-      "style": {
-        "navigationBarTitleText": "元宝明细",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/rights/coupons",
-      "style": {
-        "navigationBarTitleText": "我的券包",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/orders/index",
-      "style": {
-        "navigationBarTitleText": "我的订单",
-        "navigationBarBackgroundColor": "#FFF6E9",
-        "navigationBarTextStyle": "black"
-      }
-    },
-    {
-      "path": "pages/orders/detail",
-      "style": {
-        "navigationBarTitleText": "订单详情",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/verify/qrcode",
-      "style": {
-        "navigationBarTitleText": "核销扫码",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/verify/scan",
-      "style": {
-        "navigationBarTitleText": "扫码核销",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/mine/index",
-      "style": {
-        "navigationBarTitleText": "我的",
-        "navigationBarBackgroundColor": "#FFF6E9",
-        "navigationBarTextStyle": "black"
-      }
-    },
-    {
-      "path": "pages/mine/favorites",
-      "style": {
-        "navigationBarTitleText": "我的收藏",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/mine/footprints",
-      "style": {
-        "navigationBarTitleText": "浏览足迹",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/profile/settings",
-      "style": {
-        "navigationBarTitleText": "设置",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/profile/profile-edit",
-      "style": {
-        "navigationBarTitleText": "个人资料",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/profile/doc",
-      "style": {
-        "navigationBarTitleText": "协议文档",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/activity/index",
-      "style": {
-        "navigationBarTitleText": "活动页",
-        "navigationBarBackgroundColor": "#FFF6E9",
-        "navigationBarTextStyle": "black"
-      }
-    },
-    {
       "path": "pages/rights/category",
       "style": {
         "navigationStyle": "custom",
         "navigationBarTitleText": "生活服务"
-      }
-    },
-    {
-      "path": "pages/goods/self-detail",
-      "style": {
-        "navigationBarTitleText": "商品详情",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/trade/confirm",
-      "style": {
-        "navigationBarTitleText": "确认订单",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/trade/result",
-      "style": {
-        "navigationBarTitleText": "支付结果",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/goods/detail",
-      "style": {
-        "navigationBarTitleText": "商品详情",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/goods/search-result",
-      "style": {
-        "navigationBarTitleText": "全站搜索",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/goods/search",
-      "style": {
-        "navigationBarTitleText": "搜索找券",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
-      }
-    },
-    {
-      "path": "pages/goods/list",
-      "style": {
-        "navigationBarTitleText": "商品列表",
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white"
       }
     },
     {
@@ -246,32 +62,75 @@
         "navigationBarBackgroundColor": "#FFF6E9",
         "navigationBarTextStyle": "black"
       }
+    }
+  ],
+  "subPackages": [
+    {
+      "root": "pkg-goods",
+      "pages": [
+        { "path": "pages/goods/detail", "style": { "navigationBarTitleText": "商品详情", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/goods/self-detail", "style": { "navigationBarTitleText": "商品详情", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/goods/search-result", "style": { "navigationBarTitleText": "全站搜索", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/goods/search", "style": { "navigationBarTitleText": "搜索找券", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/goods/list", "style": { "navigationBarTitleText": "商品列表", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/orders/index", "style": { "navigationBarTitleText": "我的订单", "navigationBarBackgroundColor": "#FFF6E9", "navigationBarTextStyle": "black" } },
+        { "path": "pages/orders/detail", "style": { "navigationBarTitleText": "订单详情", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/trade/confirm", "style": { "navigationBarTitleText": "确认订单", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/trade/result", "style": { "navigationBarTitleText": "支付结果", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/verify/qrcode", "style": { "navigationBarTitleText": "核销扫码", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/verify/scan", "style": { "navigationBarTitleText": "扫码核销", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/activity/index", "style": { "navigationBarTitleText": "活动页", "navigationBarBackgroundColor": "#FFF6E9", "navigationBarTextStyle": "black" } }
+      ]
     },
     {
-      "path": "pages/commission/wallet",
-      "style": {
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white",
-        "navigationBarTitleText": "佣金钱包"
-      }
+      "root": "pkg-user",
+      "pages": [
+        { "path": "pages/mine/index", "style": { "navigationBarTitleText": "我的", "navigationBarBackgroundColor": "#FFF6E9", "navigationBarTextStyle": "black" } },
+        { "path": "pages/mine/favorites", "style": { "navigationBarTitleText": "我的收藏", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/mine/footprints", "style": { "navigationBarTitleText": "浏览足迹", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/profile/settings", "style": { "navigationBarTitleText": "设置", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/profile/profile-edit", "style": { "navigationBarTitleText": "个人资料", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/profile/doc", "style": { "navigationBarTitleText": "协议文档", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/commission/wallet", "style": { "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white", "navigationBarTitleText": "佣金钱包" } },
+        { "path": "pages/commission/withdraw", "style": { "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white", "navigationBarTitleText": "佣金提现" } },
+        { "path": "pages/commission/invite", "style": { "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white", "navigationBarTitleText": "邀请推广" } }
+      ]
     },
     {
-      "path": "pages/commission/withdraw",
-      "style": {
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white",
-        "navigationBarTitleText": "佣金提现"
-      }
+      "root": "pkg-rights",
+      "pages": [
+        { "path": "pages/rights/grade", "style": { "navigationBarTitleText": "选择档位", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/rights/records", "style": { "navigationBarTitleText": "兑换记录", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/rights/levels", "style": { "navigationBarTitleText": "会员等级", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/rights/ingot", "style": { "navigationBarTitleText": "元宝明细", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } },
+        { "path": "pages/rights/coupons", "style": { "navigationBarTitleText": "我的券包", "navigationBarBackgroundColor": "#E8336D", "navigationBarTextStyle": "white" } }
+      ]
     },
     {
-      "path": "pages/commission/invite",
-      "style": {
-        "navigationBarBackgroundColor": "#E8336D",
-        "navigationBarTextStyle": "white",
-        "navigationBarTitleText": "邀请推广"
+      "root": "pkg-mayi",
+      "pages": [
+        { "path": "pages/plugin-jump", "style": { "navigationBarTitleText": "加载中", "navigationBarBackgroundColor": "#FFF6E9", "navigationBarTextStyle": "black" } }
+      ],
+      "plugins": {
+        "mayi-ordering": { "version": "latest", "provider": "wx869ff9f322c1d2f0" },
+        "mayi-tg": { "version": "latest", "provider": "wx8b412290993bf26a" }
       }
     }
   ],
+  "preloadRule": {
+    "pages/index/index": {
+      "network": "all",
+      "packages": ["pkg-goods", "pkg-mayi"]
+    },
+    "pages/shell/s5": {
+      "network": "all",
+      "packages": ["pkg-user"]
+    },
+    "pages/shell/s3": {
+      "network": "all",
+      "packages": ["pkg-rights"]
+    }
+  },
   "tabBar": {
     "custom": true,
     "color": "#8C8577",
@@ -305,6 +164,9 @@
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "FYT360",
     "navigationBarBackgroundColor": "#FFF6E9",
-    "backgroundColor": "#FFF6E9"
+    "backgroundColor": "#FFF6E9",
+    "usingComponents": {
+      "box": "plugin://mayi-movie/box"
+    }
   }
 }

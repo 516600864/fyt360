@@ -5,8 +5,24 @@ export default {
   onLaunch() {
     console.log('[fyt360-mini] launched');
     this.initMoviePluginParams();
+    this.initShareMenu();
   },
   methods: {
+    /**
+     * 分享菜单显式开启（2026-10-09：与 main.js 全局 onShareAppMessage/onShareTimeline 双保险——
+     * 部分基础库版本下朋友圈入口需 showShareMenu menus 声明才点亮；失败静默不阻塞启动）。
+     */
+    initShareMenu() {
+      // #ifdef MP-WEIXIN
+      if (typeof uni.showShareMenu === 'function') {
+        uni.showShareMenu({
+          withShareTicket: false,
+          menus: ['shareAppMessage', 'shareTimeline'],
+          fail: () => {},
+        });
+      }
+      // #endif
+    },
     /**
      * mayi-movie 影票插件参数初始化（文档 tomovie.js 方式：插件 box/页面从 storage 读参）。
      * movieuid/movieapikey/index/homepath 从 brand-launch 动态下发（uid/apikey 占位符已由端点替换），

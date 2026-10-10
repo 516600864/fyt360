@@ -6,8 +6,9 @@
  *   ② 鉴权：匿名 /boot /sse /history 一律 401
  *   ③ /boot：chips 来自 brand_action_cfg（enabled）、badges 动态计数、site_name（顶部胶囊源）、welcome/suggests
  *   ④ L1 chips 直达：POST /sse chip → service_card（0 token，走 brand_action_cfg 真服务）
- *   ⑤ L0 粘贴解析（实测契约 2026-10-07 探针锁定）：jd 3.cn 短链整链透传 type=3 → parse_card 真转链；
- *      item.jd.com 数字 sku 上游 -200 → 引导文案；tb 淘口令整段文案透传 item_id → parse_card 带口令
+ *   ⑤ L0 粘贴解析（2026-10-09 万能转链改造）：tb 强信号走旧接口 getunionurl（唯一带佣金通道，
+ *      失败回落万能补刀）；其余整段透传 open/union（pf 响应驱动平台）→ jd 全形态（数字sku/
+ *      3.cn/u.jd.com）、美团 dpurl.cn（pf=7）、vip 短链（pf=6）、pdd 二合一（pf=2）→ parse_card 真转链
  *   ⑥ L2 hy3 意图：自由文本搜券 → intent + goods_card（佣金×等级 = rebate，无等级则 null）
  *   ⑦ 限流：当日第 51 条 → CHAT_QUOTA_EXCEEDED
  *   ⑧ 历史：GET 游标分页 + DELETE 清空 + 落库行数断言
@@ -166,14 +167,16 @@ section('4 L1：chip 直达 service_card（0 token）');
 }
 
 // ══ ⑤ L0 粘贴解析 ══
-section('5 L0：链接识别（实测契约 2026-10-07 探针锁定）');
+section('5 L0：链接识别（2026-10-09 万能转链改造：tb 强信号走旧接口，其余 open/union 整段透传）');
 {
-  // jd item.jd.com：数字 sku 上游 -200 materialId 不合规（探针实测）→ 锁定「引导文案」契约
+  // jd item.jd.com 数字 sku：旧结论「-200 无解」已被推翻（probe-union5 隔离矩阵实锤：
+  //   根因=extend_id 缺失，补上后全形态可转）→ 锁定「万能通道真转链」契约
   const sjd = await sse('/api/chat/sse', TOKEN, { message: '看看这个 https://item.jd.com/100012043978.html', session_id: 'e2e-l0-jd' });
-  const jdTip = sjd.events.find((e) => e.ev === 'text_delta');
-  ok(!!jdTip && /京东/.test(jdTip.j?.t ?? ''), 'jd item.jd.com 数字 sku → 引导文案（能力边界，不假转链）');
+  const jdCardSku = sjd.events.find((e) => e.ev === 'card' && e.j?.kind === 'parse_card');
+  ok(!!jdCardSku && jdCardSku.j?.platform === 'jd', 'jd item.jd.com 数字 sku → parse_card（万能通道真转链）');
+  ok(/u\.jd\.com|3\.cn/.test(jdCardSku?.j?.link?.url ?? ''), `jd sku 转链短链=${(jdCardSku?.j?.link?.url ?? '').slice(0, 44)}`);
   ok(!sjd.events.some((e) => e.ev === 'error'), 'jd item.jd.com 不产生 error 事件');
-  // jd 3.cn 短链：整链透传 goods_id + type=3（实测不带尾部口令码也成功）→ parse_card 真转链
+  // jd 3.cn 口令文案：整段透传（probe-union5：文案非必要但支持）→ parse_card 真转链
   const s3cn = await sse('/api/chat/sse', TOKEN, {
     message: '【京东】https://3.cn/36c-Q2K5?jkl=@NElVK5AACn@ MF3390 「四川特产红油麻辣榨菜豇豆下饭菜」点击链接直接打开 或者复制文案打开京东',
     session_id: 'e2e-l0-jd3cn',
@@ -189,7 +192,26 @@ section('5 L0：链接识别（实测契约 2026-10-07 探针锁定）');
     ok(its.length > 0 && its.every((x) => ['jd', 'tb', 'pdd', 'vip'].includes(x.platform) && x.platform !== 'jd' && !!x.title),
       `jd 同款跨平台卡 ${its.length} 项（${its.map((x) => x.platform).join('/')}）`);
   }
-  // tb 淘口令：整段文案透传 item_id。上游时效实锤（2026-10-07 22:0x 复测）：同一口令上午
+  // 美团 dpurl.cn 短链（2026-10-09 D先生 实测样例）→ pf=7 → parse_card platform=meituan
+  const smt = await sse('/api/chat/sse', TOKEN, {
+    message: '【先领】美团外卖通用红包 👉http://dpurl.cn/45c1Jzzz',
+    session_id: 'e2e-l0-meituan',
+  });
+  const mtCard = smt.events.find((e) => e.ev === 'card' && e.j?.kind === 'parse_card');
+  ok(!!mtCard && mtCard.j?.platform === 'meituan', '美团 dpurl.cn → parse_card（pf=7 美团官方容器）');
+  ok(!smt.events.some((e) => e.ev === 'error'), '美团短链不产生 error 事件');
+  // vip t.vip.com 短链（D先生 实测样例）→ pf=6 → parse_card platform=vip
+  const svip = await sse('/api/chat/sse', TOKEN, { message: 'https://t.vip.com/pqnylb', session_id: 'e2e-l0-vip' });
+  const vipCard = svip.events.find((e) => e.ev === 'card' && e.j?.kind === 'parse_card');
+  ok(!!vipCard && vipCard.j?.platform === 'vip', 'vip t.vip.com 短链 → parse_card（pf=6）');
+  // pdd 二合一链接（旧 parseRef 不识别的形态）→ pf=2 → parse_card platform=pdd
+  const spdd = await sse('/api/chat/sse', TOKEN, {
+    message: '【男士休闲风衣2026春季新款韩版潮流帅气百搭中长款连帽春秋款外套】 【在售价】15.32元 【券后价】15.32元 --------------- 【下单链接】https://p.pinduoduo.com/bISkyqPB?sc=EFAC',
+    session_id: 'e2e-l0-pdd',
+  });
+  const pddCard = spdd.events.find((e) => e.ev === 'card' && e.j?.kind === 'parse_card');
+  ok(!!pddCard && pddCard.j?.platform === 'pdd', 'pdd 二合一链接 → parse_card（pf=2）');
+  // tb 淘口令：tb 强信号走旧接口（唯一带佣金通道）。上游时效实锤（2026-10-07 22:0x 复测）：同一口令上午
   //   转链成功、晚间上游回 103「不支持该商品id」（e.tb.cn 价保短链有时效/轮换）——
   //   断言锁「管线契约」而非上游瞬时库存：命中 → parse_card 真转链；未命中 → 必须诚实降级
   //   （引导搜同款，禁 error 事件禁编数）。

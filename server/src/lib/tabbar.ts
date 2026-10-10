@@ -19,7 +19,7 @@ export type TabbarFab = { enabled: boolean; icon: string; action: string };
 export const TABBAR_STYLE_DEFAULT: TabbarStyle = 'glass';
 /** fab.action = 站内页面标识：search=全站搜索 07b（默认）；其余为 builtin 页面值；page:page-xxx=活动装修页（决策#34） */
 export const TABBAR_FAB_DEFAULT: TabbarFab = { enabled: true, icon: 'sparkle', action: 'search' };
-export const TABBAR_FAB_ACTIONS = ['search', 'home', 'rights', 'life', 'orders', 'mine'] as const;
+export const TABBAR_FAB_ACTIONS = ['search', 'home', 'rights', 'life', 'orders', 'mine', 'chat'] as const;
 const FAB_ACTION_LEGACY: Record<string, string> = { coupon: 'rights' }; // 旧「领券中心」→ 权益页
 const FAB_PAGE_RE = /^page:[a-z0-9-]{2,20}$/;
 export function normalizeFabAction(raw: unknown): string {

@@ -103,6 +103,9 @@ export interface HjkCallResult {
  * opts.sign：显式传入签名串（签名类接口：dcorder/movieorder/recharge），透传为 sign 查询参数；
  *           不传则上游按无签名处理（pforder/平台活动实测免签）。
  * opts.baseUrl：recharge 系列走 https + 非默认前缀（/index.php/v2/api/recharge/...），可覆盖网关。
+ * opts.keepBizError：true=业务错误码（status_code<0 或 ≥400）不抛异常、原样返回 payload——
+ *           万能转链（open/union）失败详情在 data[].errmsg（如「京东转链失败：xxx」），
+ *           外层 message 只有「转链失败」，需调用方自行深挖（2026-10-09）。
  * 失败抛 HttpError：502=上游错误，504=超时。
  */
 export async function hjkCall(
@@ -110,7 +113,7 @@ export async function hjkCall(
   params: Record<string, string | number | undefined>,
   apikey: string,
   version: 'v1' | 'v2' = 'v1',
-  opts?: { sign?: string; baseUrl?: string; method?: 'GET' | 'POST' }
+  opts?: { sign?: string; baseUrl?: string; method?: 'GET' | 'POST'; keepBizError?: boolean }
 ): Promise<HjkCallResult> {
   const qs = new URLSearchParams({ apikey });
   for (const [k, v] of Object.entries(params)) {
@@ -151,7 +154,7 @@ export async function hjkCall(
       }
       // 部分平台在 HTTP 200 内带业务错误码（jd 转链失败用负数如 -200）
       const code = body.status_code ?? body.code;
-      if (typeof code === 'number' && (code >= 400 || code < 0)) {
+      if (typeof code === 'number' && (code >= 400 || code < 0) && !opts?.keepBizError) {
         throw new HttpError(502, 'UPSTREAM_BUSINESS', String(body.message ?? '上游业务错误'));
       }
       return { payload: body };

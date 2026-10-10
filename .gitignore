@@ -24,3 +24,6 @@ deploy/.pgdata-*/
 *.log
 .DS_Store
 Thumbs.db
+
+# 部署时生成的站点小程序模板包（export-miniprogram-assets.mjs 产物，勿入库）
+server/assets/

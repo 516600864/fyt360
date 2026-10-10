@@ -48,8 +48,10 @@ function resolveBucketPrefix(): string {
   throw new HttpError(503, '缺 TCB_STORAGE_BUCKET 配置（存储桶名，形如 6679-{env}-{appid}）', 'BUCKET_NOT_CONFIGURED');
 }
 
-/** GET /api/media/uploads/{yyyymm}/{file} → 302 临时 URL（C 端渲染免登录） */
-mediaRouter.get(/^(\/uploads\/.+)$/, async (req: Request, res: Response, next: NextFunction) => {
+/** GET /api/media/uploads|avatar/{path} → 302 临时 URL（C 端渲染免登录）。
+ *  前缀白名单：uploads=admin 图片 / avatar=C 端头像（2026-10-09 修复：avatar 前缀此前
+ *  不在读取路由内 → 头像保存后 404 显示不出来，D先生 实测实锤）。 */
+mediaRouter.get(/^\/(uploads|avatar)\/.+$/, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const cloudPath = decodeURIComponent(req.path.slice(1));
     if (cloudPath.includes('..')) throw new HttpError(400, '非法路径', 'BAD_PATH');

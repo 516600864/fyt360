@@ -129,7 +129,7 @@ props: { title: string(默认"邀请有礼"), desc?: string, reward_text?: strin
 
 const FEW_SHOT = `## 示例输出（省略部分楼层）
 {"version":1,"page":"home","floors":[
- {"type":"search-bar","floor_id":"f-search","props":{"logo_text":"券","placeholder":"搜索券 · 京东 / 淘宝 / 拼多多","action_text":"签到有礼","action":{"type":"jump","target":"page","value":"/pages/rights/index"}}},
+ {"type":"search-bar","floor_id":"f-search","props":{"logo_text":"券","placeholder":"搜索券 · 请输入商品名称","action_text":"签到有礼","action":{"type":"jump","target":"page","value":"/pages/rights/index"}}},
  {"type":"swiper","floor_id":"f-banner","props":{"autoplay":true,"interval":4000,"items":[{"title":"大牌点燃","emphasize":"5折起","tags":["爆款特惠"],"tail":"天天开抢","emoji":"🍔☕","bg":"linear-gradient(100deg, #e8336d 0%, #ff5d43 55%, #ffaa1d 100%)"}]}},
  {"type":"nav","floor_id":"f-nav","props":{"columns":5,"items":[{"label":"大牌点餐","icon":"🍔","action":{"type":"plugin-launch","value":"dining_13"}},{"label":"咖啡茶饮","icon":"☕","action":{"type":"plugin-launch","value":"dining_05"}}]}},
  {"type":"goods-feed","floor_id":"f-feed","props":{"title":"精选好物","page_size":10,"tabSwitch":["jd","tb","pdd"]}}

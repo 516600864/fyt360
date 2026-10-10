@@ -4,11 +4,14 @@
 // ⚠️ 屏 52 的凭据端点挂在 provisionRouter（site-provision.ts），不塞进本文件：
 //    凭据要审计 + 连通测试 + 四组不同落点，混进站点 CRUD 会让本文件失焦。
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import path from 'node:path';
+import fs from 'node:fs';
 import { pool } from '../db/client.js';
 import { HttpError } from '../middleware/errors.js';
-import { requireAdmin, type AdminJwtPayload } from '../middleware/auth.js';
+import { requireAdmin, assertSiteAccess, type AdminJwtPayload } from '../middleware/auth.js';
 import { writeAudit } from '../lib/audit.js';
 import { invalidateProviderCache } from '../lib/provider.js';
+import { readZip, writeZip } from '../lib/zip.js';
 
 export const sitesRouter = Router();
 
@@ -210,6 +213,82 @@ sitesRouter.post('/', requireAdmin, async (req: Request, res: Response, next: Ne
       detail: { name, owner: ownerName },
     });
     res.json({ ok: true, data: { site_id: siteId, code, status: 'pending', owner_username: ownerName } });
+  } catch (e) { next(e); }
+});
+
+/**
+ * GET /api/admin/sites/:code/miniprogram → 实时生成并下发站点小程序专属包（决策 #48 自助版）
+ * 链路：部署时 export-miniprogram-assets.mjs 把统一模板打进镜像（assets/miniprogram-template.zip）
+ *   → 本端点读取模板 → 实时注入站点 token + project.config（appid/项目名）→ zip 下发。
+ * appid 真相源 = 租户开通向导存的 wechat_mini 凭据：**凭据开通完成即可自行下载，零部署零 config**。
+ * 包内零凭据（secret 等全在服务端 DB），业务数据运行时按 site 拉取。
+ */
+sitesRouter.get('/:code/miniprogram', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const code = String(req.params.code ?? '').trim();
+    if (!/^[a-z0-9][a-z0-9-]{1,31}$/.test(code)) throw new HttpError(400, '站点 code 非法', 'BAD_REQUEST');
+    const { rows: siteRows } = await pool.query(`SELECT site_id::text AS site_id, code, name FROM site WHERE code = $1 LIMIT 1`, [code]);
+    if (!siteRows[0]) throw new HttpError(404, '站点不存在', 'SITE_NOT_FOUND');
+    assertSiteAccess(req.admin!, siteRows[0].site_id);
+
+    const { rows: pcRows } = await pool.query(
+      `SELECT apikey FROM provider_config WHERE site_id = $1 AND provider = 'wechat_mini' LIMIT 1`,
+      [siteRows[0].site_id]
+    );
+    const appid = String(pcRows[0]?.apikey ?? '').trim();
+    if (!appid) throw new HttpError(409, '该站点尚未配置小程序凭据，请先完成开通向导', 'SITE_MINI_NOT_CONFIGURED');
+
+    const assetsDir = path.join(process.cwd(), 'assets'); // 容器 WORKDIR=/app；本地 node dist/index.js 时 cwd=server/
+    const tplZip = path.join(assetsDir, 'miniprogram-template.zip');
+    const tplMeta = path.join(assetsDir, 'miniprogram-template.json');
+    if (!fs.existsSync(tplZip) || !fs.existsSync(tplMeta)) {
+      throw new HttpError(404, '平台小程序模板缺失（部署异常，请联系平台）', 'MINIPROGRAM_TEMPLATE_MISSING');
+    }
+    const meta = JSON.parse(fs.readFileSync(tplMeta, 'utf8')) as { base_code: string; version?: string; built_at?: string };
+
+    const entries = readZip(fs.readFileSync(tplZip)).map((e) => {
+      if (e.name === 'core/bootstrap.js') {
+        // 站点 token 替换（minified: const t="<base_code>"）
+        e.data = Buffer.from(e.data.toString('utf8').replaceAll(`"${meta.base_code}"`, `"${code}"`), 'utf8');
+      } else if (e.name === 'project.config.json') {
+        const pc = JSON.parse(e.data.toString('utf8'));
+        pc.appid = appid;
+        pc.projectname = String(siteRows[0].name || code);
+        e.data = Buffer.from(JSON.stringify(pc, null, 2), 'utf8');
+      }
+      return e;
+    });
+    if (!entries.some((e) => e.name === 'core/bootstrap.js' && e.data.includes(`"${code}"`))) {
+      throw new HttpError(500, '站点注入失败（模板 token 不匹配）', 'MINIPROGRAM_INJECT_FAIL');
+    }
+    // ⛔ 双保险（2026-10-09 tabbar 消失事故）：模板缺关键文件就不发残包，宁可 503 让平台重部署
+    if (!entries.some((e) => e.name === 'custom-tab-bar/index.js')) {
+      throw new HttpError(503, '平台小程序模板异常（缺底部菜单组件），请联系平台重新部署', 'MINIPROGRAM_TEMPLATE_BROKEN');
+    }
+    res.setHeader('Content-Disposition', `attachment; filename="miniprogram-${code}.zip"`);
+    res.setHeader('Content-Type', 'application/zip');
+    if (meta.version) res.setHeader('X-Mini-Pkg-Version', meta.version);
+    res.send(writeZip(entries));
+  } catch (e) { next(e); }
+});
+
+/**
+ * GET /api/admin/sites/:code/miniprogram/meta → 模板包版本信息（决策 #48 增补，2026-10-09）
+ * 开通页下载条显示「模板版本」，让租户能自证下载到的是不是修复后的新包。
+ */
+sitesRouter.get('/:code/miniprogram/meta', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const code = String(req.params.code ?? '').trim();
+    if (!/^[a-z0-9][a-z0-9-]{1,31}$/.test(code)) throw new HttpError(400, '站点 code 非法', 'BAD_REQUEST');
+    const { rows: siteRows } = await pool.query(`SELECT site_id::text AS site_id FROM site WHERE code = $1 LIMIT 1`, [code]);
+    if (!siteRows[0]) throw new HttpError(404, '站点不存在', 'SITE_NOT_FOUND');
+    assertSiteAccess(req.admin!, siteRows[0].site_id);
+
+    const assetsDir = path.join(process.cwd(), 'assets');
+    const tplMeta = path.join(assetsDir, 'miniprogram-template.json');
+    if (!fs.existsSync(tplMeta)) throw new HttpError(404, '平台小程序模板缺失（部署异常，请联系平台）', 'MINIPROGRAM_TEMPLATE_MISSING');
+    const meta = JSON.parse(fs.readFileSync(tplMeta, 'utf8')) as { base_code: string; version?: string; built_at?: string };
+    res.json({ ok: true, data: { version: meta.version ?? null, built_at: meta.built_at ?? null, base_code: meta.base_code } });
   } catch (e) { next(e); }
 });
 

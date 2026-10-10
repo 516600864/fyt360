@@ -201,7 +201,16 @@ async function api(path, opt = {}) {
 }
 
 const admin = JSON.parse(localStorage.getItem('fyt_admin_info') ?? 'null');
-const siteLabel = admin?.sites?.[0]?.name ?? 'site-a';
+// 站点徽标读会话真值源（决策#27 localStorage.fyt_admin_site，select-site 写入）；
+// 禁用 admin.sites[0]——多站账号永远显示登录首站（2026-10-09 真实事故：新建站后徽标谎报）
+const siteLabel = (() => {
+  try {
+    const s = JSON.parse(localStorage.getItem('fyt_admin_site') ?? 'null');
+    if (s?.scope === 'site' && s.name) return s.name;
+    if (s?.scope === 'all') return `平台工作台 · ${s.name ?? '全局'}`;
+  } catch { /* ignore */ }
+  return '未选站点';
+})();
 
 const prompt = ref('');
 const chips = ['中秋大促', '年货节', '会员日'];
@@ -282,6 +291,24 @@ async function load() {
   } catch (e) { ElMessage.error(e.message); } finally { pageLoading.value = false; }
 }
 
+/* ---- 异步生成轮询（2026-10-09 504 实锤：接入层 ~30s 掐同步连接，/generate 改秒回 job_id 后台跑） ---- */
+async function pollJob(jobId, { timeoutMs = 180000, stepMs = 2000 } = {}) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    await new Promise((r) => setTimeout(r, stepMs));
+    let d;
+    try {
+      d = await api(`/admin/ai/generate/status/${jobId}`);
+    } catch (e) {
+      if (/任务不存在/.test(e.message)) throw e; // 404（过期/重启）直接失败
+      continue; // 单次轮询网络抖动 → 吞掉继续，靠总超时兜底
+    }
+    if (d.status === 'ok') return d.result;
+    if (d.status === 'failed') throw new Error(d.error || 'AI 生成失败');
+  }
+  throw new Error('AI 生成超时（3 分钟）——后台可能仍在跑，稍后刷新草稿列表查看结果');
+}
+
 async function onGenerate() {
   busy.value = true;
   try {
@@ -295,7 +322,9 @@ async function onGenerate() {
     if (genTarget.value === 'new') {
       const title = newPageTitle.value.trim();
       if (title.length < 2) { ElMessage.warning('请先填写新页面名称（2~30 字）'); return; }
-      const d = await api('/admin/ai/generate', { method: 'POST', body: JSON.stringify({ target: 'new', title, brief: prompt.value }) });
+      const s = await api('/admin/ai/generate', { method: 'POST', body: JSON.stringify({ target: 'new', title, brief: prompt.value }) });
+      ElMessage.info('AI 生成中（约 30~60 秒），请勿关闭页面…');
+      const d = await pollJob(s.job_id);
       await load();
       selPage.value = d.page;
       ElMessage.success(`新页面「${title}」已生成（${d.page} · v${d.version} · ${d.floors} 层），已带入编辑器微调`);
@@ -304,7 +333,9 @@ async function onGenerate() {
       return;
     }
     const page = curPage.value?.page ?? selPage.value;
-    const d = await api('/admin/ai/generate', { method: 'POST', body: JSON.stringify({ page, brief: prompt.value }) });
+    const s = await api('/admin/ai/generate', { method: 'POST', body: JSON.stringify({ page, brief: prompt.value }) });
+    ElMessage.info('AI 生成中（约 30~60 秒），请勿关闭页面…');
+    const d = await pollJob(s.job_id);
     ElMessage.success(`AI 已生成 ${d.floors} 层草稿（v${d.version}），已带入编辑器微调`);
     await load();
     // 设计稿流程：生成 → 在 DIY 编辑器微调 → 发布（base=draft 显式带草稿进编辑器）
@@ -385,13 +416,16 @@ const retryingId = ref(null);
 async function onRetry(l) {
   retryingId.value = l.id;
   try {
-    const d = await api('/admin/ai/retry', { method: 'POST', body: JSON.stringify({ log_id: l.id }) });
-    if (d.mode === 'theme') {
-      const tk = d.tokens ?? {};
-      ElMessage.success(`重试成功：配色已生成并保存（${d.merged_keys} 项 token，${(d.duration_ms / 1000).toFixed(1)}s）：主色 ${tk.primary ?? '保持'} · 辅助 ${tk.secondary ?? '保持'}`);
-    } else {
+    const d0 = await api('/admin/ai/retry', { method: 'POST', body: JSON.stringify({ log_id: l.id }) });
+    if (d0.job_id) {
+      // 页面重试已异步化（同 /generate）：轮询拿结果
+      ElMessage.info('AI 重试生成中（约 30~60 秒）…');
+      const d = await pollJob(d0.job_id);
       ElMessage.success(`重试成功：AI 已生成 ${d.floors} 层草稿（v${d.version}），已带入编辑器微调`);
       view.value = 'editor';
+    } else {
+      const tk = d0.tokens ?? {};
+      ElMessage.success(`重试成功：配色已生成并保存（${d0.merged_keys} 项 token，${(d0.duration_ms / 1000).toFixed(1)}s）：主色 ${tk.primary ?? '保持'} · 辅助 ${tk.secondary ?? '保持'}`);
     }
     load();
   } catch (e) { ElMessage.error(e.message); } finally { retryingId.value = null; }

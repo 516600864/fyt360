@@ -8,7 +8,7 @@
           <text class="nick">{{ ov.nickname }}</text>
           <view class="idrow">
             <text class="uid">ID: {{ ov.user_id }}</text>
-            <text class="lv-badge" @tap.stop="go('/pages/rights/levels')">{{ ov.level_name }}</text>
+            <text class="lv-badge" @tap.stop="go('/pkg-rights/pages/rights/levels')">{{ ov.level_name }}</text>
           </view>
           <!-- 邀请码（后台新增核销员/邀请绑定凭此码，C 端唯一可查处） -->
           <view v-if="ov.invite_code" class="inv-row" @tap="copyInvite">
@@ -16,19 +16,19 @@
             <text class="inv-copy">复制</text>
           </view>
         </view>
-        <view class="gear" @tap="go('/pages/profile/settings')"><text class="gear-i">⚙</text></view>
+        <view class="gear" @tap="go('/pkg-user/pages/profile/settings')"><text class="gear-i">⚙</text></view>
       </view>
       <!-- 白卡三格统计（压头） -->
       <view class="stat-card">
-        <view class="stat" @tap="go('/pages/commission/wallet')">
+        <view class="stat" @tap="go('/pkg-user/pages/commission/wallet')">
           <text class="num">¥{{ fmt(ov.balance) }}</text>
           <text class="lab">余额</text>
         </view>
-        <view class="stat" @tap="go('/pages/rights/ingot')">
+        <view class="stat" @tap="go('/pkg-rights/pages/rights/ingot')">
           <text class="num">{{ fmt(ov.ingot) }}</text>
           <text class="lab">元宝</text>
         </view>
-        <view class="stat" @tap="go('/pages/rights/coupons')">
+        <view class="stat" @tap="go('/pkg-rights/pages/rights/coupons')">
           <text class="num">{{ fmt(ov.coupons) }}</text>
           <text class="lab">优惠券</text>
         </view>
@@ -40,10 +40,10 @@
       <view class="card">
         <view class="card-head">
           <text class="card-title">我的订单</text>
-          <text class="card-more" @tap="go('/pages/orders/index?tab=all')">全部订单 ›</text>
+          <text class="card-more" @tap="go('/pkg-goods/pages/orders/index?tab=all')">全部订单 ›</text>
         </view>
         <view class="order-grid">
-          <view v-for="t in orderTabs" :key="t.key" class="order-cell" @tap="go('/pages/orders/index?tab=' + t.key)">
+          <view v-for="t in orderTabs" :key="t.key" class="order-cell" @tap="go('/pkg-goods/pages/orders/index?tab=' + t.key)">
             <view class="o-icon"><text class="o-emoji">{{ t.emoji }}</text><text v-if="badges[t.key] > 0" class="badge">{{ badges[t.key] }}</text></view>
             <text class="o-lab">{{ t.name }}</text>
           </view>
@@ -68,9 +68,9 @@
       <view class="invite-banner">
         <view class="ib-left">
           <text class="ib-title">邀请好友</text>
-          <text class="ib-desc">好友下单返利 3 级分成，收益自动入余额</text>
+          <text class="ib-desc">好友下单有奖励哦，收益自动入余额</text>
         </view>
-        <view class="ib-btn" @tap="go('/pages/commission/invite')"><text class="ib-btn-t">去邀请</text></view>
+        <view class="ib-btn" @tap="go('/pkg-user/pages/commission/invite')"><text class="ib-btn-t">去邀请</text></view>
       </view>
     </view>
 
@@ -106,12 +106,12 @@ export default {
         { key: 'refund', name: '退款/售后', emoji: '↩️' },
       ],
       grids: [
-        { name: '我的收藏', emoji: '💖', url: '/pages/mine/favorites' },
-        { name: '浏览足迹', emoji: '👣', url: '/pages/mine/footprints' },
+        { name: '我的收藏', emoji: '💖', url: '/pkg-user/pages/mine/favorites' },
+        { name: '浏览足迹', emoji: '👣', url: '/pkg-user/pages/mine/footprints' },
         { name: '联系客服', emoji: '🎧', kefu: true },   // kefu 标记 → 点它走企微客服，不当死占位
         { name: '权益兑换', emoji: '🎟️', url: '/pages/rights/index' },
-        { name: '邀请好友', emoji: '👋', url: '/pages/commission/invite' },
-        { name: '设置', emoji: '🎯', url: '/pages/profile/settings' },
+        { name: '邀请好友', emoji: '👋', url: '/pkg-user/pages/commission/invite' },
+        { name: '设置', emoji: '🎯', url: '/pkg-user/pages/profile/settings' },
       ],
       isAgent: false,
     };
@@ -139,11 +139,11 @@ export default {
         success: (r) => {
           const code = String(r.result ?? '').trim();
           if (!code) return;
-          uni.navigateTo({ url: `/pages/verify/scan?code=${encodeURIComponent(code.toUpperCase())}` });
+          uni.navigateTo({ url: `/pkg-goods/pages/verify/scan?code=${encodeURIComponent(code.toUpperCase())}` });
         },
         fail: () => {
           // 用户拒绝相机/取消 → 进手动输码页兜底
-          uni.navigateTo({ url: '/pages/verify/scan' });
+          uni.navigateTo({ url: '/pkg-goods/pages/verify/scan' });
         },
       });
     },

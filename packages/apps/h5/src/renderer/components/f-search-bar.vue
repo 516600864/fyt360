@@ -17,7 +17,7 @@ export default {
   name: 'FSearchBar',
   props: {
     logo_text: { type: String, default: '券' },
-    placeholder: { type: String, default: '搜索券 · 京东 / 淘宝 / 拼多多' },
+    placeholder: { type: String, default: '搜索券 · 请输入商品名称' },
     action_text: { type: String, default: '' },
     action: { type: Object, default: null },
   },

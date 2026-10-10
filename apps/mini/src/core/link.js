@@ -64,11 +64,33 @@ export function onGoodsTap(g) {
   if (!platform) return;
   if (platform === 'self') {
     // 团购：进团购 SKU 详情页（交易链，画布 mini-16）
-    uni.navigateTo({ url: `/pages/goods/self-detail?id=${g.raw?.goods_id ?? g.id}` });
+    uni.navigateTo({ url: `/pkg-goods/pages/goods/self-detail?id=${g.raw?.goods_id ?? g.id}` });
     return;
   }
   cacheGoods(platform, g);
-  uni.navigateTo({ url: `/pages/goods/detail?platform=${platform}&id=${encodeURIComponent(g.id)}` });
+  uni.navigateTo({ url: `/pkg-goods/pages/goods/detail?platform=${platform}&id=${encodeURIComponent(g.id)}` });
+}
+
+/**
+ * parse_card 主卡直跳（2026-10-09 D先生 定稿）：转链结果已带官方小程序信息，直接跳转，不二次转链。
+ * - tb：微信生态无淘宝官方小程序 → 返回 false（调用方保持「复制口令」）
+ * - jd/pdd/vip/美团：appId+path 齐（unionToCard 归一化字段）→ navigateToMiniProgram，失败兜底复制链接
+ * - 信息不全（异常响应/旧历史卡）→ 返回 false，调用方自行降级
+ * 注意：目标 appId 必须在 manifest.json navigateToMiniProgramAppIdList 内（美团 wxde8ac0a21135c07d 等已声明）。
+ * @returns {boolean} 是否已发起小程序跳转
+ */
+export function jumpConverted(link) {
+  if (!link || link.platform === 'tb') return false;
+  const appId = link.miniAppId || '';
+  // vip：官方小程序内页路径优先（urlInfoList[0].vipWxUrl，与 goUnion 同构），退化用 we_app_info.path
+  const path = (link.platform === 'vip' && link.vipWxUrl) ? link.vipWxUrl : (link.miniPath || '');
+  if (!appId || !path) return false;
+  uni.navigateToMiniProgram({
+    appId,
+    path,
+    fail: () => copyText(link.url || link.tkl || '', '链接已复制，请在浏览器打开'),
+  });
+  return true;
 }
 
 /** 转链跳转（商详「领券购买」/ 旧直跳入口共用）：union → 按平台跳官方小程序 / 口令页 / 复制兜底 */

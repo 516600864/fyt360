@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev:mp-weixin": "node ../../packages/renderer/sync.mjs && uni -p mp-weixin",
-    "build:mp-weixin": "node ../../packages/renderer/sync.mjs && uni build -p mp-weixin && node scripts/patch-plugin-deps.mjs && node scripts/patch-tabbar.mjs && node scripts/patch-buildver.mjs"
+    "build:mp-weixin": "node ../../packages/renderer/sync.mjs && uni build -p mp-weixin && node scripts/patch-plugin-deps.mjs && node scripts/patch-tabbar.mjs && node scripts/patch-buildver.mjs && node scripts/patch-site.mjs"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4060620250520001",

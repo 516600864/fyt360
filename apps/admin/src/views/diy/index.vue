@@ -7,7 +7,8 @@
         <el-select v-model="page" class="page-select" size="large" @change="onSwitchPage">
           <el-option v-for="p in pageOptions" :key="p.page" :value="p.page" :label="p.label" />
         </el-select>
-        <button class="ai-btn" @click="emit('regen-ai')">☁ cloudbase-agent AI 重页</button>
+<!-- 2026-10-09 D先生 钦定：「cloudbase-agent AI 重页」→「AI 建页」（原画布压缩造词让人懵；画布侧文案待下次开 ardot 时同步） -->
+        <button class="ai-btn" @click="emit('regen-ai')">☁ AI 建页</button>
         <button v-if="page.startsWith('page-')" class="op-btn danger" @click="deletePage">删除页面</button>
       </div>
       <div class="op-right">
@@ -820,7 +821,7 @@ const floorLabel = (t) => LABELS[t] ?? t;
 
 /* —— 默认模板（与 renderer default-home 同源精简）—— */
 const DEFAULT_FLOORS = () => ([
-  { type: 'search-bar', floor_id: 'f-search', component_id: 'c-search', props: { logo_text: '券', placeholder: '搜索券 · 京东 / 淘宝 / 拼多多', action_text: '签到有礼', action: { type: 'jump', target: 'page', value: '/pages/rights/index' } } },
+  { type: 'search-bar', floor_id: 'f-search', component_id: 'c-search', props: { logo_text: '券', placeholder: '搜索券 · 请输入商品名称', action_text: '签到有礼', action: { type: 'jump', target: 'page', value: '/pages/rights/index' } } },
   { type: 'swiper', floor_id: 'f-banner', component_id: 'c-banner', props: { autoplay: true, interval: 4000, items: [
     { title: '大牌点燃', emphasize: '5折起', tags: ['差旅必备', '爆款特惠'], tail: '天天开抢', emoji: '🍔☕🍿🍩', bg: 'linear-gradient(100deg, #e8336d 0%, #ff5d43 55%, #ffaa1d 100%)' },
     { title: '吃喝玩乐购', emphasize: '一站全变现', tags: ['自购省钱', '分享赚钱'], tail: '元宝当钱花', emoji: '🧡💰🎁', bg: 'linear-gradient(100deg, #a31245 0%, #e8336d 60%, #ffaa1d 100%)' },
@@ -837,7 +838,7 @@ const DEFAULT_FLOORS = () => ([
     { label: '领券中心', icon: '券', hot: true, action: { type: 'jump', target: 'page', value: '/pages/rights/index' } },
   ] } },
   { type: 'coupon-strip', floor_id: 'f-coupon', component_id: 'c-coupon', props: { amount: '¥20', note_top: '满可用', note_bottom: '全平台通用', action_text: '立即领取', action: { type: 'jump', target: 'page', value: '/pages/rights/coupons' } } },
-  { type: 'brand-chips', floor_id: 'f-brands', component_id: 'c-brands', props: { title: '品牌补贴日', badge: '低至5折', chips: ['麦当劳', '肯德基', '星巴克', '瑞幸', '必胜客', '塔斯汀', '奈雪的茶', '库迪咖啡'] } },
+  { type: 'brand-chips', floor_id: 'f-brands', component_id: 'c-brands', props: { title: '品牌补贴日', badge: '低至5折起', chips: ['麦当劳', '肯德基', '星巴克', '瑞幸', '必胜客', '塔斯汀', '奈雪的茶', '库迪咖啡'] } },
   { type: 'goods-feed', floor_id: 'f-feed', component_id: 'c-feed', data_source: { mode: 'platform_tab', params: { tabs: ['jd', 'tb', 'pdd', 'vip'] } }, props: { title: '精选好物', more_text: '更多 >', page_size: 10 } },
 ]);
 
@@ -989,7 +990,7 @@ function addFloor(type, label) {
   else if (type === 'float-btn') Object.assign(base, { props: { text: '去抢购', icon: '🔥', bottom: 180, action: { type: 'none' } } });
   else if (type === 'ai-chat-entry') Object.assign(base, { props: { shape: 'block', corner: 'br', title: '有问题，问 AI 管家', note: '找券 · 转链 · 点餐 · 权益兑换', bubble: '帮你找券，一句话搞定~', icon: 'robot' } });
   else if (type === 'category-nav') Object.assign(base, { props: { items: [{ label: '全部', hot: true, action: { type: 'none' } }, { label: '点餐', action: { type: 'plugin-launch', value: 'dining_13' } }, { label: '影票', action: { type: 'plugin-launch', value: 'life_01' } }] } });
-  else if (type === 'member-card') Object.assign(base, { props: { title: '会员权益中心', subtitle: '元宝当钱花 · 权益随心兑', level_text: '', btn_text: '立即查看', bg: '', action: { type: 'jump', target: 'page', value: '/pages/rights/index' } } });
+  else if (type === 'member-card') Object.assign(base, { props: { title: '会员权益中心', subtitle: '积分当钱花 · 权益随心兑', level_text: '', btn_text: '立即查看', bg: '', action: { type: 'jump', target: 'page', value: '/pages/rights/index' } } });
   else if (type === 'brand-matrix') Object.assign(base, { props: { columns: 4, items: [{ name: '麦当劳', icon: '🍔', tag: '', action: { type: 'plugin-launch', value: 'dining_01' } }, { name: '星巴克', icon: '☕', tag: '', action: { type: 'plugin-launch', value: 'dining_02' } }, { name: '瑞幸', icon: '🥤', tag: '9.9', action: { type: 'plugin-launch', value: 'dining_05' } }, { name: '影票', icon: '🎬', tag: '', action: { type: 'plugin-launch', value: 'life_01' } }] } });
   else if (type === 'activity-floor') Object.assign(base, { props: { title: '限时大促', subtitle: '大牌补贴进行中', image: '', bg: 'linear-gradient(100deg, #e8336d 0%, #ff5d43 55%, #ffaa1d 100%)', buttons: [{ text: '立即抢', ghost: false, action: { type: 'none' } }] } });
   else if (type === 'image-hotzone') Object.assign(base, { props: { image: '', zones: [{ x: 0, y: 0, w: 100, h: 100, action: { type: 'none' } }] } });
@@ -1342,7 +1343,7 @@ function copyFloor(i) {
 
 const schemaJson = computed(() => JSON.stringify({ page: page.value, floors: floors.value }, null, 2));
 
-/* —— AI 重页：切回 AI 建页视图（设计稿 30 顶栏「cloudbase-agent AI 重页」）—— */
+/* —— AI 建页：切回 AI 建页视图（原画布 30 顶栏「cloudbase-agent AI 重页」，2026-10-09 钦定改名）—— */
 const emit = defineEmits(['regen-ai']);
 </script>
 

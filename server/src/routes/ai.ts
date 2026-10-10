@@ -28,7 +28,9 @@ async function oneSite(admin: AdminJwtPayload, code: string): Promise<string> {
 /** GET /api/admin/ai/overview?site= → 当前版本 + llm_log 历史 */
 aiRouter.get('/overview', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const siteId = await oneSite(req.admin!, String(req.query.site ?? ''));
+    // x-fyt-site 头兜底（2026-10-09 实锤：本端点曾独缺 header 兜底，前端不带 ?site= 时
+    //   多站账号 siteIds≠1 直接 400 SITE_REQUIRED——同文件其余端点均读 header）
+    const siteId = await oneSite(req.admin!, String(req.query.site ?? req.headers['x-fyt-site'] ?? ''));
     const { rows: versions } = await pool.query(
       `SELECT id, page, version, status, source, schema_json, updated_at
          FROM page_schema WHERE site_id = $1
@@ -89,7 +91,7 @@ const MAX_ATTEMPTS = 3; // 首次 + 校验失败回喂重试 2 次
 /** 版本楼层 diff（楼层按序对齐：same/changed/added/removed） */
 aiRouter.get('/diff', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const siteId = await oneSite(req.admin!, String(req.query.site ?? ''));
+    const siteId = await oneSite(req.admin!, String(req.query.site ?? req.headers['x-fyt-site'] ?? ''));
     const page = String(req.query.page ?? '');
     const va = Number(req.query.a);
     const vb = Number(req.query.b);
@@ -327,7 +329,31 @@ async function runPageGeneration(siteId: string, page: string, brief: string, op
     schema_id: ins[0]?.id ?? null, duration_ms: result.durationMs, tokens: { in: result.tokensIn, out: result.tokensOut } };
 }
 
-/** POST /api/admin/ai/generate {site?, page, brief, mode?: 'page'|'theme'} → LLM 生成 */
+/* ---- 异步生成任务（2026-10-09 D先生 504 实锤：云托管接入层 nginx ~30s 掐连接，
+ * 同步等 runPageGeneration（实测 36~49s）必回 504「假死真活」——容器侧继续跑完并落草稿。
+ * 改法：POST /generate 秒回 job_id + 后台执行，前端轮询 /generate/status/:id 拿结果。
+ * 内存注册表，单实例容器前提成立（与 verify-site-provision 同假设）；任务 30 分钟自动清理。 */
+interface AiJob {
+  status: 'running' | 'ok' | 'failed';
+  siteId: string; adminId: bigint; page: string; startedAt: number;
+  result?: unknown; error?: string;
+}
+const AI_JOBS = new Map<string, AiJob>();
+const AI_JOB_TTL = 30 * 60_000;
+
+/** 起后台任务：登记 running → 秒回 job_id，完成/失败原位更新（不阻塞响应） */
+function aiJobStart(siteId: string, adminId: bigint, page: string, run: () => Promise<unknown>): string {
+  for (const [k, v] of AI_JOBS) if (Date.now() - v.startedAt > AI_JOB_TTL) AI_JOBS.delete(k);
+  const id = `job-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  AI_JOBS.set(id, { status: 'running', siteId, adminId, page, startedAt: Date.now() });
+  void run().then(
+    (r) => { const j = AI_JOBS.get(id); if (j) { j.status = 'ok'; j.result = r; } },
+    (e) => { const j = AI_JOBS.get(id); if (j) { j.status = 'failed'; j.error = e instanceof Error ? e.message : String(e); } },
+  );
+  return id;
+}
+
+/** POST /api/admin/ai/generate {site?, page, brief, mode?: 'page'|'theme'} → 秒回 job_id（异步生成，轮询 status） */
 aiRouter.post('/generate', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const siteId = await oneSite(req.admin!, String(req.body?.site ?? req.headers['x-fyt-site'] ?? ''));
@@ -359,13 +385,31 @@ aiRouter.post('/generate', requireAdmin, async (req: Request, res: Response, nex
         if (!dup[0]) { page = cand; break; }
       }
       if (!page) throw new HttpError(500, '页面 key 生成冲突，请重试', 'PAGE_KEY_COLLISION');
-      const r = await runPageGeneration(siteId, page, brief, req.admin!.adminId, title);
-      res.json({ ok: true, data: r });
+      const jobId = aiJobStart(siteId, req.admin!.adminId, page,
+        () => runPageGeneration(siteId, page, brief, req.admin!.adminId, title));
+      res.json({ ok: true, data: { job_id: jobId, page, status: 'running' } });
       return;
     }
     const page = String(req.body?.page ?? 'home');
     if (!PAGE_RE.test(page)) throw new HttpError(400, 'page 非法（home/home_h5/page-xxx）', 'BAD_PAGE');
-    res.json({ ok: true, data: await runPageGeneration(siteId, page, brief, req.admin!.adminId) });
+    const jobId = aiJobStart(siteId, req.admin!.adminId, page,
+      () => runPageGeneration(siteId, page, brief, req.admin!.adminId));
+    res.json({ ok: true, data: { job_id: jobId, page, status: 'running' } });
+  } catch (e) { next(e); }
+});
+
+/** GET /api/admin/ai/generate/status/:id → 轮询异步生成结果（仅任务创建者可查） */
+aiRouter.get('/generate/status/:id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const j = AI_JOBS.get(String(req.params.id ?? ''));
+    if (!j || j.adminId !== req.admin!.adminId) {
+      throw new HttpError(404, '任务不存在或已过期（30 分钟清理）', 'JOB_NOT_FOUND');
+    }
+    res.json({ ok: true, data: {
+      status: j.status, page: j.page, elapsed_ms: Date.now() - j.startedAt,
+      ...(j.status === 'ok' ? { result: j.result } : {}),
+      ...(j.status === 'failed' ? { error: j.error } : {}),
+    } });
   } catch (e) { next(e); }
 });
 
@@ -396,7 +440,10 @@ aiRouter.post('/retry', requireAdmin, async (req: Request, res: Response, next: 
     } else {
       const page = String(rows[0].page ?? 'home');
       if (!PAGE_RE.test(page)) throw new HttpError(400, '留痕 page 非法', 'BAD_PAGE');
-      res.json({ ok: true, data: { ...(await runPageGeneration(siteId, page, brief, req.admin!.adminId)), retried_from: logId } });
+      // 页面重试与 /generate 同受接入层 30s 限制 → 同款异步化（theme 色板小保持同步）
+      const jobId = aiJobStart(siteId, req.admin!.adminId, page,
+        () => runPageGeneration(siteId, page, brief, req.admin!.adminId).then((r) => ({ ...r, retried_from: logId })));
+      res.json({ ok: true, data: { job_id: jobId, page, status: 'running' } });
     }
   } catch (e) { next(e); }
 });
