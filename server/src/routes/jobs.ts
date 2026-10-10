@@ -43,30 +43,23 @@ jobsRouter.post('/ordersync', requireAdmin, async (req: Request, res: Response, 
   try {
     const site = await resolveSite(req);
     assertSiteAccess(req.admin!, (await pool.query(`SELECT site_id FROM site WHERE code = $1 LIMIT 1`, [site])).rows[0].site_id);
-    // tb 存量回填窗口（2026-09-23 pay_price=0 修复）：body.tb_start/tb_end ISO 串
-    const tbStart = req.body?.tb_start ? new Date(String(req.body.tb_start)) : undefined;
-    const tbEnd = req.body?.tb_end ? new Date(String(req.body.tb_end)) : undefined;
-    const opts =
-      tbStart && tbEnd && !Number.isNaN(tbStart.getTime()) && !Number.isNaN(tbEnd.getTime())
-        ? { tbWindow: { start: tbStart, end: tbEnd } }
-        : undefined;
-    const stats = await runOrdersync(site, opts);
+    const stats = await runOrdersync(site);
     res.json({ ok: true, data: stats });
   } catch (e) {
     next(e);
   }
 });
 
-/** 蚂蚁 4 类历史订单回填（2026-10-03接口清单落地，决策#39）
- *  POST /api/jobs/ordersync/backfill   body: { since?: ISO串（默认 2026-09-20）, providers?: ['pf','dc','recharge','movie'] }
- *  ⚠️ 测试apikey 累积订单 57 万条（pforder 实测 total=577548），故强制**按天分段**逐日拉取；
- *     缺省 since 即D先生指定的「仅同步 2026/9/20 之后」。
- *  归因过滤：只落 extend_id/uid = 本站 user_id 的行，其余（他人推广位）丢弃。 */
+/** 蚂蚁 4 类历史订单回填（接口清单落地，决策#39；2026-10-10 归口口径）
+ *  POST /api/jobs/ordersync/backfill   body: { since?: ISO串（缺省=建站时间，ordersync 内钳到 site.created_at）, providers?: ['pf','dc','recharge','movie'] }
+ *  ⚠️ 账户历史单可能量大（pforder 实测单账户 total≈2100+），故强制**按天分段**逐日拉取；
+ *     起点下限=建站时间（建站前订单必非本系统产生），无归因行照常入库（promoter 仅线索）。 */
 jobsRouter.post('/ordersync/backfill', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const site = await resolveSite(req);
     assertSiteAccess(req.admin!, (await pool.query(`SELECT site_id FROM site WHERE code = $1 LIMIT 1`, [site])).rows[0].site_id);
-    const since = req.body?.since ? new Date(String(req.body.since)) : new Date('2026-09-20T00:00:00+08:00');
+    // 缺省 since=极早时刻，ordersync 内统一钳到建站时间（2026-10-10 归口）
+    const since = req.body?.since ? new Date(String(req.body.since)) : new Date('2000-01-01T00:00:00+08:00');
     if (Number.isNaN(since.getTime())) throw new HttpError(400, 'BAD_PARAM', 'since 不是合法日期');
     const valid = new Set(['pf', 'dc', 'recharge', 'movie']);
     const providers = Array.isArray(req.body?.providers)

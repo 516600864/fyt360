@@ -125,7 +125,7 @@ const loading = ref(false);
 const levels = ref([]);
 const stats = ref({ ingot_granted_total: 0, levels_active: 0, today_estimate: 0 });
 const ingotRule = ref({ self_return: 100, invite_reward: 500 });
-const wdRule = ref({ min_amount: 10, fee_rate: 0, per_txn_limit: 5000 });
+const wdRule = ref({ min_amount: 0, fee_rate: 0, per_txn_limit: 5000 });
 const distItems = ref([]);
 const editing = ref('');
 const draft = ref({});
@@ -154,7 +154,7 @@ async function load() {
     levels.value = d.levels;
     stats.value = d.stats;
     ingotRule.value = { self_return: 100, invite_reward: 500, ...d.rules.ingot_rule };
-    wdRule.value = { min_amount: 10, fee_rate: 0, per_txn_limit: 5000, ...d.rules.withdraw_rule };
+    wdRule.value = { min_amount: 0, fee_rate: 0, per_txn_limit: 5000, ...d.rules.withdraw_rule };
     distItems.value = d.rules.dist_alloc?.items ?? [];
   } catch (e) {
     ElMessage.error(e.message);

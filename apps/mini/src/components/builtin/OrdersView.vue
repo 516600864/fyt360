@@ -45,7 +45,7 @@
         </view>
         <!-- 操作行 -->
         <view class="ops">
-          <view v-if="isIngot(o.provider)" class="btn ghost" @tap="goRights"><text class="btn-t">再次兑换</text></view>
+          <view v-if="o.provider === 'recharge'" class="btn ghost" @tap="goRights"><text class="btn-t">再次兑换</text></view>
           <view
             v-if="canCancel(o)"
             class="btn ghost"
@@ -63,16 +63,15 @@
  * 我的订单（M6，画布 mini-09 全量对齐）：平台徽标 + 时间 + 状态 + 自购预估返利 + 操作。
  * 双挂载：pages/orders/index.vue（navigateTo）+ ShellView builtin:orders（tab 壳页内嵌）。
  * 业务诚实裁剪：CPS 订单由上游同步，无「去支付/取消订单/查看物流」通道，不放假按钮；
- * 「再次兑换」仅权益类单（蚂蚁星球 providers）显示 → 跳权益页。
+ * 「再次兑换」仅直充单（recharge）显示 → 跳权益页；点餐/电影票是消费单，不挂兑换按钮（2026-10-10 D先生）。
  */
 import { request } from '../../utils/request';
 import { copyText } from '../../utils/clip';
 
 const PLAT_NAMES = {
   jd: '京东', tb: '淘宝', pdd: '拼多多', vip: '唯品会',
-  self: '到店团购', mayixingqiu: '直充', recharge: '直充', movie: '直充', dc: '直充',
+  self: '到店团购', mayixingqiu: '直充', recharge: '直充', movie: '电影票', dc: '点餐',
 };
-const INGOT_PROVIDERS = ['mayixingqiu', 'recharge', 'movie', 'dc'];
 
 export default {
   props: {
@@ -119,7 +118,7 @@ export default {
       copyText(sn, '订单编号已复制');
     },
     isIngot(p) {
-      return INGOT_PROVIDERS.includes(p);
+      return p === 'recharge'; // 「再次兑换」只认真直充（点餐/电影票是消费单）
     },
     /** 未付款的自营单可取消（会退券+回补库存）；CPS/权益单由上游同步，无此通道 */
     canCancel(o) {

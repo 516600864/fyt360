@@ -5,7 +5,7 @@
       <view class="hero-card">
         <text class="hero-label">可提现佣金（¥）</text>
         <text class="hero-amount">{{ fmt(balance) }}</text>
-        <text class="hero-sub">T+1 到账 · 免手续费</text>
+        <text class="hero-sub">无门槛提现 · 即时到账 · 免手续费</text>
       </view>
     </view>
 
@@ -19,7 +19,7 @@
         <text class="amt-symbol">¥</text>
         <input v-model="amountStr" class="amt-input" type="digit" placeholder="0.00" placeholder-class="amt-ph" />
       </view>
-      <text class="amt-hint">最低提现 ¥{{ min }} · 全部可提现</text>
+      <text class="amt-hint">无提现门槛 · 单日次数不限 · 可提现额度即佣金余额</text>
     </view>
 
     <!-- 提现方式 -->
@@ -38,8 +38,11 @@
     <!-- 提现规则 -->
     <view class="card rules">
       <text class="card-title">提现规则</text>
-      <text class="rule">· T+1 工作日到账，单笔限额 ¥{{ max }}</text>
-      <text class="rule">· 佣金为现金，提现免手续费</text>
+      <text class="rule">· 可提现额度：账户佣金余额，支持「全部提现」</text>
+      <text class="rule">· 提现门槛：无门槛，余额内金额均可提现（单笔限额 ¥{{ max }}）</text>
+      <text class="rule">· 提现时间：全天 24 小时可提交，单日提现次数不限</text>
+      <text class="rule">· 到账时间：提交后即时到账微信零钱</text>
+      <text class="rule">· 佣金为现金收益，提现免手续费</text>
       <text class="rule">· 元宝不可提现、不可转赠，仅用于兑换会员等级</text>
     </view>
 
@@ -60,7 +63,7 @@ import { request } from '@/utils/request';
 
 export default {
   data() {
-    return { balance: 0, min: 10, max: 5000, amountStr: '', submitting: false };
+    return { balance: 0, max: 5000, amountStr: '', submitting: false };
   },
   computed: {
     payable() {
@@ -79,7 +82,6 @@ export default {
       try {
         const s = await request('/api/me/commission/summary');
         this.balance = s.balance;
-        this.min = s.min_withdraw;
         this.max = s.max_withdraw_per;
       } catch (e) {
         uni.showToast({ title: e.message ?? '加载失败', icon: 'none' });
@@ -88,12 +90,11 @@ export default {
     async submit() {
       const n = Number(this.amountStr);
       if (!Number.isFinite(n) || n <= 0) return uni.showToast({ title: '请输入提现金额', icon: 'none' });
-      if (n < this.min) return uni.showToast({ title: `最低提现 ¥${this.min}`, icon: 'none' });
       if (n > this.balance) return uni.showToast({ title: '超过可提现余额', icon: 'none' });
       this.submitting = true;
       try {
         await request('/api/me/withdraw', { method: 'POST', data: { amount: n, channel: 'wx_wallet' } });
-        uni.showToast({ title: '申请已提交，等待审核', icon: 'success' });
+        uni.showToast({ title: '提现成功，已到账微信零钱', icon: 'success' });
         setTimeout(() => uni.navigateBack(), 1200);
       } catch (e) {
         uni.showToast({ title: e.message ?? '提交失败', icon: 'none' });

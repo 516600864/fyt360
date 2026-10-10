@@ -26,12 +26,18 @@ export const PROVIDER_CPS = [
   'other',                         // pf_type 14 其他
 ] as const;
 
-/** 积分兑换（蚂蚁星球自有业务，订单中心单列一个 tab） */
-export const PROVIDER_INGOT = ['dc', 'recharge', 'movie'] as const;
+/** 积分兑换（蚂蚁星球权益直充，订单中心单列一个 tab）。
+ *  ⚠️ 2026-10-10 D先生定稿（方案 A）：dc(点餐)/movie(影票) 移出本桶 →
+ *     PROVIDER_LOCAL「本地生活(点餐·影票)」独立 tab；本桶语义=真·积分兑换/直充。 */
+export const PROVIDER_INGOT = ['recharge'] as const;
+
+/** 本地生活（点餐 + 电影票）：蚂蚁侧有真实佣金结算的业务，与积分兑换(直充)分家 */
+export const PROVIDER_LOCAL = ['dc', 'movie'] as const;
 
 /** SQL 用逗号串（网关对数组参数绑定不可靠，统一走 string_to_array） */
 export const CPS_PROVIDERS_SQL = PROVIDER_CPS.join(',');
 export const INGOT_PROVIDERS_SQL = PROVIDER_INGOT.join(',');
+export const LOCAL_PROVIDERS_SQL = PROVIDER_LOCAL.join(',');
 
 // ---------------- 订单中心筛选台（admin-32B，2026-10-04） ----------------
 /**
@@ -59,12 +65,11 @@ export function resolveTimeField(raw: unknown): TimeFieldKey {
  * 类型下拉 6 组 13 项（admin-32B 设计稿）。
  *
  * ⚠️ 设计稿的单数是 2026-10-04 某时段快照，与真实库存在 3 处偏差，已按真实库订正并记录：
- *   ① 「虚拟服务」组把 `recharge`(权益充值) 和 `dc/movie`(点餐/电影票) 混在一起是**错的口径**：
- *      dc/movie/recharge 在 PROVIDER_INGOT 里是独立业务，拆到「本地生活」组更符合真实语义。
+ *   ① 「虚拟服务」组：2026-10-10 D先生定稿（方案 A）——recharge 就是积分兑换，
+ *      「权益充值 / 积分兑换（蚂蚁星球）」两个选项是一回事 → 合并为一项；dc/movie 拆到本地生活组。
  *   ② 真实库存在 `local`(吃喝玩乐周边 pf_type 32) 与 `fzy`(飞猪 pf_type 40) 两桶，
  *      设计稿 13 项没有它们 → 补进「本地生活」组(fzy 归电商) 否则这 1026 单筛不出来。
- *   ③ 「积分兑换（蚂蚁星球）」在 order 表没有独立 provider 值，落在 PROVIDER_INGOT 桶内
- *      → value 用 ingot 聚合 dc/movie/recharge 三桶，语义=蚂蚁星球侧订单全集。
+ *   ③ 「积分兑换（蚂蚁星球）」providers=['recharge']，与订单中心 ingot tab 完全同口径（决策 #41）。
  *
  * 值与 provider 桶的映射关系单一真相源：前端只认 value，后端只认 providers 数组。
  */
@@ -109,15 +114,14 @@ export const TYPE_FILTER_GROUPS: Array<{
     key: 'virtual',
     label: '虚拟服务',
     items: [
-      { value: 'recharge', label: '权益充值', providers: ['recharge'] },
+      { value: 'ingot', label: '积分兑换（蚂蚁星球）', providers: ['recharge'] },
       { value: 'liucard', label: '流量卡', providers: ['liucard'] },
-      { value: 'ingot', label: '积分兑换（蚂蚁星球）', providers: ['dc', 'recharge', 'movie'] },
     ],
   },
 ];
 
-/** value → providers 展平表（后端筛选用）。ingot 是聚合项，与 dc/recharge/movie 有重叠，
- *  语义上=「蚂蚁星球侧订单全集」，与页签 tab=ingot 完全同口径（决策 #41 口径不打架）。 */
+/** value → providers 展平表（后端筛选用）。ingot=积分兑换=recharge 单桶（2026-10-10 定稿，
+ *  与页签 tab=ingot 完全同口径，决策 #41 口径不打架）。 */
 export const TYPE_FILTER_ITEMS: Record<string, string[]> = Object.fromEntries(
   TYPE_FILTER_GROUPS.flatMap((g) => g.items.map((i) => [i.value, i.providers])),
 );

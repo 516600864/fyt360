@@ -11,6 +11,8 @@
       <view class="tab-pill">
         <image wx:if="{{index === selected && (item.icon_active || item._icA)}}" class="tab-icon" src="{{item.icon_active || item._icA}}" mode="aspectFit" />
         <image wx:elif="{{item.icon || item._ic}}" class="tab-icon" src="{{item.icon || item._ic}}" mode="aspectFit" />
+        <text wx:elif="{{index === selected && item._emojiA}}" class="tab-dot emoji">{{item._emojiA}}</text>
+        <text wx:elif="{{item._emoji}}" class="tab-dot emoji">{{item._emoji}}</text>
         <text wx:else class="tab-dot">{{item.name[0]}}</text>
         <text class="tab-name">{{item.name}}</text>
       </view>

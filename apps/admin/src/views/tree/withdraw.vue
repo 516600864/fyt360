@@ -66,7 +66,7 @@
     </div>
 
     <div class="notice">
-      ⓘ 起提 ¥{{ fmt(rule.min_amount) }} / {{ rule.fee_rate ? (rule.fee_rate * 100).toFixed(1) + '%' : '0 费率' }} / 单笔限 ¥{{ fmt(rule.per_txn_limit) }} 可在「分销管理 → 佣金与元宝结算配置」调整（决策 6）；佣金与元宝账户分离，元宝不可提现
+      ⓘ {{ rule.min_amount > 0 ? `起提 ¥${fmt(rule.min_amount)}` : '无起提门槛' }} / {{ rule.fee_rate ? (rule.fee_rate * 100).toFixed(1) + '%' : '0 费率' }} / 单笔限 ¥{{ fmt(rule.per_txn_limit) }} 可在「分销管理 → 佣金与元宝结算配置」调整（决策 6）；C 端提现即时到账（申请即打款），佣金与元宝账户分离，元宝不可提现
     </div>
   </div>
 </template>
@@ -79,7 +79,7 @@ const headerStyle = { background: '#fff6e9', color: '#3d2530', fontWeight: 700 }
 const loading = ref(false);
 const items = ref([]);
 const sum = ref({ pending_count: 0, pending_amount: 0, available_amount: 0, available_users: 0, paid_amount: 0, paid_count: 0 });
-const rule = ref({ min_amount: 10, fee_rate: 0, per_txn_limit: 5000 });
+const rule = ref({ min_amount: 0, fee_rate: 0, per_txn_limit: 5000 });
 const paidOnly = ref(false);
 
 const fmt = (n) => Number(n ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

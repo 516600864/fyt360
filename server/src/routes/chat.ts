@@ -278,24 +278,27 @@ async function crossPlatformGoods(keyword: string, exclude: string, userId: numb
 
 type ToolName = 'search_goods' | 'goto_service' | 'convert_link' | 'chit_chat';
 
-const INTENT_SYSTEM = `你是本站 AI 助手。用户消息进来后，你必须只输出一个 JSON 对象，禁止输出任何其他文字、markdown 或解释。可选工具恰好一个：
+const INTENT_SYSTEM = `你是本站 AI 助手。用户消息进来后，你必须只输出一个 JSON 对象，禁止输出任何其他文字、markdown 或解释。格式：{"tools":[{"tool":"工具名","args":{...}}]}
+tools 数组按用户话里的需求顺序列出**全部**意图：单一需求只放 1 个；复合需求（一句话含多个动作/目的地）必须拆成多个意图，上限 3 个。可选工具：
 
 搜商品：{"tool":"search_goods","args":{"platform":"jd|tb|pdd|vip","keyword":"关键词"}}
 站内服务：{"tool":"goto_service","args":{"name":"品牌或服务名"}}
 转链接：{"tool":"convert_link","args":{"ref":"用户提供的链接/口令/文案原文整段"}}
-寒暄兜底：{"tool":"chit_chat","args":{"reply":"50字内的简短友好回复"}}
+寒暄兜底：{"tool":"chit_chat","args":{"reply":"50字内的简短友好回复"}}（chit_chat 只能单独出现，禁止与其他工具并列）
 
 规则：
 1. 用户想找优惠/商品/券 → search_goods（platform 按常识选，不确定选 jd）。
-2. 用户提到点餐/外卖/打车/看电影/买电影票/充会员/充视频VIP/领红包等生活服务或权益 → goto_service，name 必须用用户原话里的词（如「美团外卖」「电影票」「腾讯视频」），禁止自行改写成别的品牌名。
+2. 用户提到点餐/外卖/打车/看电影/买电影票/充会员/充视频VIP/领红包等生活服务或权益 → goto_service，name 必须用用户原话里的核心词（如「打车」「麦当劳」「电影票」「腾讯视频」），禁止自行改写成别的品牌名。
 3. 用户给了链接、口令或带下单链接的文案要转链 → convert_link（ref=原话整段，平台识别由转链服务自行完成）。
 4. 元宝/积分兑换/提现/改密码等站内账户操作 → chit_chat 回复引导去「我的」页。注意：充视频VIP、买会员属于权益服务（走规则2），不是账户操作。
-5. 闲聊问候 → chit_chat。reply 不编造价格、佣金、库存。`;
+5. 闲聊问候 → chit_chat。reply 不编造价格、佣金、库存。
+6. 复合需求拆解示例：「肚子饿了，打个车去吃个麦当劳」→ {"tools":[{"tool":"goto_service","args":{"name":"打车"}},{"tool":"goto_service","args":{"name":"麦当劳"}}]}；「充个腾讯视频再搜下耳机」→ tools=[goto_service 腾讯视频, search_goods 耳机]。`;
 
 interface Intent { tool: ToolName; args: Record<string, unknown> }
 
-/** hy3 输出 → 严格 JSON 校验；任何畸形进 L3（失败不重试超 1 次） */
-async function llmIntent(history: { role: 'user' | 'assistant'; content: string }[], message: string): Promise<Intent | null> {
+/** hy3 输出 → 严格 JSON 校验（**多意图数组协议**，2026-10-10 方案 A：复合句拆多意图，上限 3）；
+ *  兼容旧单意图格式 {"tool":...}；任何畸形返回 []（进 L3，失败不重试超 1 次） */
+async function llmIntent(history: { role: 'user' | 'assistant'; content: string }[], message: string): Promise<Intent[]> {
   const messages = [
     { role: 'system' as const, content: INTENT_SYSTEM },
     ...history.slice(-CONTEXT_ROUNDS * 2),
@@ -304,13 +307,20 @@ async function llmIntent(history: { role: 'user' | 'assistant'; content: string 
   try {
     const r = await chatComplete(messages, { timeoutMs: LLM_TIMEOUT_MS, maxTokens: LLM_MAX_TOKENS, temperature: 0.2 });
     const m = r.text.match(/\{[\s\S]*\}/);
-    if (!m) return null;
-    const j = JSON.parse(m[0]) as { tool?: string; args?: Record<string, unknown> };
-    const tools: ToolName[] = ['search_goods', 'goto_service', 'convert_link', 'chit_chat'];
-    if (!j.tool || !tools.includes(j.tool as ToolName)) return null;
-    return { tool: j.tool as ToolName, args: j.args ?? {} };
+    if (!m) return [];
+    const j = JSON.parse(m[0]) as { tool?: string; args?: Record<string, unknown>; tools?: Array<{ tool?: string; args?: Record<string, unknown> }> };
+    const valid: ToolName[] = ['search_goods', 'goto_service', 'convert_link', 'chit_chat'];
+    // 新协议 tools 数组；旧单 tool 格式兼容读取（模型偶发回退旧格式不炸）
+    const raw = Array.isArray(j.tools) ? j.tools.slice(0, 3) : j.tool ? [{ tool: j.tool, args: j.args }] : [];
+    const out: Intent[] = [];
+    for (const t of raw) {
+      if (!t?.tool || !valid.includes(t.tool as ToolName)) continue;
+      out.push({ tool: t.tool as ToolName, args: t.args ?? {} });
+    }
+    // chit_chat 只能单独出现：混入多意图时剔除（复合句里夹寒暄没意义）
+    return out.length > 1 ? out.filter((i) => i.tool !== 'chit_chat') : out;
   } catch {
-    return null; // 超时/畸形 → L3
+    return []; // 超时/畸形 → L3
   }
 }
 
@@ -557,6 +567,8 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
     }
 
     let result: { kind: string; content: string; meta: unknown } | null = null;
+    /** 多意图（2026-10-10 方案 A）：L2 拆出的全部结果；空=单结果走 result。末尾统一落库防重复 */
+    let assistantResults: Array<{ kind: string; content: string; meta: unknown }> = [];
 
     // ── L1 chips 直达 ──
     if (chip && typeof chip.name === 'string') {
@@ -590,7 +602,10 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
     // 「领一张打车券」这类短指令经 hy3 偶发路由偏航（E2E 实测翻车一次）。
     // 短消息（≤14字）且口语变体命中 brand_category 分类名 → 直接走 goto_service，不再赌 L2；
     // 长句/搜商品句式（含平台词、价格等）不满足分类命中，自然落 L2，无劫持风险。
-    if (!result && message && message.length <= 14) {
+    // ⛔ 复合句守卫（2026-10-10 方案 A）：整句 ILIKE '%分类名%' 会把「肚子饿了，打个车去吃个麦当劳」
+    //    劫持成单打车服务（14 字恰好进阈值）——含从句标点/连接词的一律落 L2 拆多意图。
+    const COMPOUND_RE = /[,，。！？；;、]|\b然后\b|顺便|接着|再去|再去|和一起/;
+    if (!result && message && message.length <= 14 && !COMPOUND_RE.test(message)) {
       for (const v of serviceVariants(message)) {
         const cat = await pool.query(
           `SELECT c.code FROM brand_category c
@@ -605,7 +620,7 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
       }
     }
 
-    // ── L2 hy3 意图 ──
+    // ── L2 hy3 意图（多意图数组，2026-10-10 方案 A：复合句拆解逐个执行，SSE 卡片连发）──
     if (!result && message) {
       const { rows: hist } = await pool.query(
         `SELECT role, content FROM chat_message
@@ -614,46 +629,55 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
         [String(userId), siteId, CONTEXT_ROUNDS * 2],
       );
       const history = hist.reverse().map((r) => ({ role: r.role as 'user' | 'assistant', content: r.content }));
-      const intent = await llmIntent(history, message);
-      if (!intent) {
+      const intents = await llmIntent(history, message);
+      if (!intents.length) {
         // L3 兜底（0 token，不重试）
         const fallback = '这句话我还没学会~ 你可以试试：搜个商品（「女士防风外套」）、贴个商品链接让我转链，或者点下面的快捷服务。';
         sseWrite(res, 'text_delta', { t: fallback });
         result = { kind: 'text', content: fallback, meta: { layer: 'L3' } };
       } else {
-        try {
-          if (intent.tool === 'search_goods') result = await toolSearchGoods(res, intent.args, userId);
-          else if (intent.tool === 'goto_service') {
-            try { result = await toolGotoService(res, intent.args, siteId); }
-            catch {
-              const tip = `「${String(intent.args.name ?? '')}」这个服务我还没接入，先看看下面的快捷服务吧~`;
-              sseWrite(res, 'text_delta', { t: tip });
-              result = { kind: 'text', content: tip, meta: { layer: 'L3' } };
+        const results: Array<{ kind: string; content: string; meta: unknown }> = [];
+        for (const intent of intents) {
+          try {
+            if (intent.tool === 'search_goods') {
+              results.push(await toolSearchGoods(res, intent.args, userId));
+            } else if (intent.tool === 'goto_service') {
+              try {
+                results.push(await toolGotoService(res, intent.args, siteId));
+              } catch {
+                const tip = `「${String(intent.args.name ?? '')}」这个服务我还没接入，先看看下面的快捷服务吧~`;
+                sseWrite(res, 'text_delta', { t: tip });
+                results.push({ kind: 'text', content: tip, meta: { layer: 'L3' } });
+              }
+            } else if (intent.tool === 'convert_link') {
+              try {
+                results.push(await toolConvertLink(res, intent.args, userId, null));
+              } catch (e) {
+                const tip = convertFailTip(e);
+                sseWrite(res, 'text_delta', { t: tip });
+                results.push({ kind: 'text', content: tip, meta: null });
+              }
+            } else {
+              const reply = String(intent.args.reply ?? '').slice(0, 200) || '我在的~';
+              sseWrite(res, 'text_delta', { t: reply });
+              results.push({ kind: 'text', content: reply, meta: { layer: 'L2-chitchat' } });
             }
-          } else if (intent.tool === 'convert_link') {
-            try { result = await toolConvertLink(res, intent.args, userId, null); }
-            catch (e) {
-              const tip = convertFailTip(e);
-              sseWrite(res, 'text_delta', { t: tip });
-              result = { kind: 'text', content: tip, meta: null };
-            }
-          } else {
-            const reply = String(intent.args.reply ?? '').slice(0, 200) || '我在的~';
-            sseWrite(res, 'text_delta', { t: reply });
-            result = { kind: 'text', content: reply, meta: { layer: 'L2-chitchat' } };
+          } catch {
+            const fallback = '刚才那步没走通，换个说法试试？';
+            sseWrite(res, 'text_delta', { t: fallback });
+            results.push({ kind: 'text', content: fallback, meta: { layer: 'L3' } });
           }
-        } catch {
-          const fallback = '刚才那步没走通，换个说法试试？';
-          sseWrite(res, 'text_delta', { t: fallback });
-          result = { kind: 'text', content: fallback, meta: { layer: 'L3' } };
         }
+        result = results[0] ?? null;
+        assistantResults = results; // 多意图逐条落库（末尾统一处理；单意图长度 1 行为不变）
       }
     }
 
-    // 历史落库（用户消息 + 助手结果）
+    // 历史落库（用户消息 + 助手结果；多意图逐条存，前端 history 按条回放各自重建卡片）
     if (message) await saveMessage(siteId, userId, sessionId, 'user', 'text', message, null);
     if (chip && typeof chip.name === 'string') await saveMessage(siteId, userId, sessionId, 'user', 'text', `[快捷] ${chip.name}`, null);
-    if (result) await saveMessage(siteId, userId, sessionId, 'assistant', result.kind, result.content, result.meta);
+    const toSave = assistantResults.length ? assistantResults : result ? [result] : [];
+    for (const r of toSave) await saveMessage(siteId, userId, sessionId, 'assistant', r.kind, r.content, r.meta);
 
     sseWrite(res, 'done', { ok: true, session_id: sessionId });
     await writeAudit(req, {

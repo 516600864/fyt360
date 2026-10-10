@@ -164,6 +164,23 @@ async function unionHandler(req: Request, res: Response, next: NextFunction): Pr
 
     const cfg = await resolveHjkConfig(req.query.site as string | undefined);
     const params = buildLinkParams(platform, req.query);
+    const uid = req.user ? String(req.user.userId) : '1';
+
+    // ⛔ 转链归口（D先生 2026-10-10）：优先走「全网转链」open/union——text 整段透传 +
+    //    extend_id=user_id，归因统一回流 pforder（订单侧同一套口径）。
+    //    上游不认该文本形态时回退旧平台接口兜底（判定权仍在下游兜底，UX 不劣化）。
+    const TEXT_FIELD: Record<string, string> = { jd: 'goods_id', tb: 'item_id', pdd: 'goods_sign', vip: 'goods_id' };
+    const text = params[TEXT_FIELD[platform]] ?? '';
+    if (text) {
+      try {
+        const u = await unionConvert(text, uid, cfg.apikey);
+        res.json({ ok: true, data: u });
+        return;
+      } catch {
+        /* 回退旧平台接口 */
+      }
+    }
+
     if (req.user) injectPromoter(platform, params, req.user.userId);
     // jd 匿名兜底：上游强制推广位，用站点默认位 1（见 injectPromoter 注释）
     if (platform === 'jd' && !req.user) params.positionid = '1';

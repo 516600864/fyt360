@@ -1,5 +1,6 @@
 // 订单中心（admin-32）：全平台聚合订单列表，真数据
-// 类型口径：self=自营 / PROVIDER_CPS=CPS 供应链 / PROVIDER_INGOT=积分兑换(蚂蚁星球，只读)
+// 类型口径（2026-10-10 D先生定稿·方案 A）：self=自营 / PROVIDER_CPS=CPS 供应链 /
+//   PROVIDER_LOCAL=本地生活(点餐·影票) / PROVIDER_INGOT=积分兑换(=recharge 权益直充，只读不展示佣金)
 //   ⚠️ provider 分类已与蚂蚁星球 pf_type 对齐（D先生 2026-10-04），常量单一真相源在 lib/constants.ts，
 //      新增 provider 桶务必同步那里，否则本tab 会漏数据。
 // 售后 = refund_status <> 'none'；用户脱敏展示（昵称首字+**）
@@ -11,6 +12,7 @@ import { requireAdmin, assertSiteAccess, type AdminJwtPayload } from '../middlew
 import {
   CPS_PROVIDERS_SQL as CPS_PROVIDERS,
   INGOT_PROVIDERS_SQL as INGOT_PROVIDERS,
+  LOCAL_PROVIDERS_SQL as LOCAL_PROVIDERS,
   TYPE_FILTER_GROUPS,
   TYPE_FILTER_ITEMS,
   STATUS_FILTER_SEGMENTS,
@@ -38,10 +40,18 @@ async function resolveSiteScope(admin: AdminJwtPayload, code: string): Promise<s
   return admin.siteIds;
 }
 
+/** tab → provider 桶串（cps/ingot/local 三个业务 tab 用；self/after/all 不走这里） */
+function providersOfTab(tab: string): string {
+  if (tab === 'cps') return CPS_PROVIDERS;
+  if (tab === 'local') return LOCAL_PROVIDERS;
+  return INGOT_PROVIDERS;
+}
+
 function tabCondition(tab: string): string {
   switch (tab) {
     case 'self': return `o.provider = 'self'`;
     case 'cps': return `o.provider = ANY(string_to_array('${CPS_PROVIDERS}', ','))`;
+    case 'local': return `o.provider = ANY(string_to_array('${LOCAL_PROVIDERS}', ','))`;
     case 'ingot': return `o.provider = ANY(string_to_array('${INGOT_PROVIDERS}', ','))`;
     case 'after': return `o.refund_status <> 'none'`;
     default: return 'TRUE';
@@ -68,8 +78,8 @@ function statusLabel(o: { refund_status: string; fulfill_status: string; platfor
 
 function orderType(provider: string): 'self' | 'cps' | 'ingot' {
   if (provider === 'self') return 'self';
-  if (INGOT_PROVIDERS.split(',').includes(provider)) return 'ingot';
-  return 'cps';
+  if (INGOT_PROVIDERS.split(',').includes(provider)) return 'ingot'; // recharge=积分兑换（不展示佣金）
+  return 'cps'; // dc/movie 等本地生活有真实佣金，按 CPS 展示
 }
 
 /** 展示状态的 SQL 镜像（与 statusLabel 优先级逐一对应，供状态筛选精确命中）。
@@ -102,7 +112,7 @@ function multiValue(raw: unknown, whitelist: string[] | null): string[] {
 
 /**
  * 类型多选 → SQL。选中项 value 走 TYPE_FILTER_ITEMS 展平成 provider 桶。
- * ⚠️ ingot 是聚合项（dc+recharge+movie），与单桶项有重叠 → 必须用 IN 而不是 OR 等值，
+ * ⚠️ 桶间可能有重叠（历史上 ingot 曾聚合 dc+recharge+movie）→ 必须用 IN 而不是 OR 等值，
  *    且多个 value 的桶要去重，否则同一单被重复计入（COUNT 不受影响但会拖慢）。
  */
 function typeFilterSql(values: string[], params: unknown[]): string | null {
@@ -218,7 +228,7 @@ ordersRouter.get('/filter-options', requireAdmin, async (req: Request, res: Resp
     const params: unknown[] = [...sites];
     let tabSql = tabCondition(tab);
     if (tab !== 'all' && tab !== 'self' && tab !== 'after') {
-      params.push(tab === 'cps' ? CPS_PROVIDERS : INGOT_PROVIDERS);
+      params.push(providersOfTab(tab));
       tabSql = `o.provider = ANY(string_to_array($${params.length}, ','))`;
     }
     // 角标口径：只带 tab + 时间（+站点），**不带** types/statuses/pay/keyword
@@ -248,7 +258,7 @@ ordersRouter.get('/filter-options', requireAdmin, async (req: Request, res: Resp
       byProvider.set(String(r.provider), (byProvider.get(String(r.provider)) ?? 0) + c);
       byStatus.set(String(r.st), (byStatus.get(String(r.st)) ?? 0) + c);
     }
-    // provider 桶 → 类型项（ingot 是聚合项，会与 dc/movie/recharge 重复计数，这里按桶反查即可）
+    // provider 桶 → 类型项（按 TYPE_FILTER_ITEMS 白名单反查计数；项与项桶已不重叠）
     const groups = TYPE_FILTER_GROUPS.map((g) => ({
       key: g.key,
       label: g.label,
@@ -287,6 +297,7 @@ ordersRouter.get('/', requireAdmin, async (req: Request, res: Response, next: Ne
       `SELECT COUNT(*)::int AS all_cnt,
               COUNT(*) FILTER (WHERE o.provider = 'self')::int AS self_cnt,
               COUNT(*) FILTER (WHERE o.provider = ANY(string_to_array('${CPS_PROVIDERS}', ',')))::int AS cps_cnt,
+              COUNT(*) FILTER (WHERE o.provider = ANY(string_to_array('${LOCAL_PROVIDERS}', ',')))::int AS local_cnt,
               COUNT(*) FILTER (WHERE o.provider = ANY(string_to_array('${INGOT_PROVIDERS}', ',')))::int AS ingot_cnt,
               COUNT(*) FILTER (WHERE o.refund_status <> 'none')::int AS after_cnt
          FROM "order" o
@@ -298,7 +309,7 @@ ordersRouter.get('/', requireAdmin, async (req: Request, res: Response, next: Ne
     const listParams: unknown[] = [...sites];
     let tabSql = tabCondition(tab);
     if (tab !== 'all' && tab !== 'self' && tab !== 'after') {
-      listParams.push(tab === 'cps' ? CPS_PROVIDERS : INGOT_PROVIDERS);
+      listParams.push(providersOfTab(tab));
       tabSql = `o.provider = ANY(string_to_array($${listParams.length}, ','))`;
     }
     const listExtra = extraFilters(req.query, listParams);
@@ -398,6 +409,7 @@ ordersRouter.get('/', requireAdmin, async (req: Request, res: Response, next: Ne
           all: countRows[0]?.all_cnt ?? 0,
           self: countRows[0]?.self_cnt ?? 0,
           cps: countRows[0]?.cps_cnt ?? 0,
+          local: countRows[0]?.local_cnt ?? 0,
           ingot: countRows[0]?.ingot_cnt ?? 0,
           after: countRows[0]?.after_cnt ?? 0,
         },
@@ -420,7 +432,7 @@ ordersRouter.get('/export', requireAdmin, async (req: Request, res: Response, ne
     let tabSql = tabCondition(tab);
     // 与列表接口同口径参数化（原来只处理 cps/ingot，self/after 走字面量分支，两处易走偏）
     if (tab !== 'all' && tab !== 'self' && tab !== 'after') {
-      params.push(tab === 'cps' ? CPS_PROVIDERS : INGOT_PROVIDERS);
+      params.push(providersOfTab(tab));
       tabSql = `o.provider = ANY(string_to_array($${params.length}, ','))`;
     }
     const extraSql = extraFilters(req.query, params);

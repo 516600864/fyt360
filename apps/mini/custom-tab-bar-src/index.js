@@ -25,6 +25,11 @@ Component({
           for (var k in it) out[k] = it[k];
           out._ic = it.icon || (d ? d[0] : '');
           out._icA = it.icon_active || (d ? d[1] : '');
+          // ⛔ 表情图标链路（2026-10-10 修复「后台配表情前端无效果」）：后台 tabbar 编辑器
+          //    下发 emoji/emoji_active 字段，端上原先只认图片 icon → 兜底成名字首字。
+          //    优先级：图片 icon > emoji > 名字首字（wxml 同序）。
+          out._emoji = it.emoji || '';
+          out._emojiA = it.emoji_active || it.emoji || '';
           return out;
         }),
         selected: selected,
@@ -41,12 +46,13 @@ Component({
     },
     onTapFab() {
       // FAB 动作（屏 49 可配，action=站内页面标识）：search=全站搜索 07b（默认）；page:page-xxx=活动装修页（决策#34）
+      // ⛔ 分包铁则（2026-10-10 修）：search/orders/mine 已迁分包，旧主包路径 navigateTo 必 fail
       var FAB_URLS = {
-        search: '/pages/goods/search-result',
+        search: '/pkg-goods/pages/goods/search-result',
         rights: '/pages/rights/index',
         life: '/pages/rights/category',
-        orders: '/pages/orders/index',
-        mine: '/pages/mine/index',
+        orders: '/pkg-goods/pages/orders/index',
+        mine: '/pkg-user/pages/mine/index',
         chat: '/pages/chat/index',
       };
       var action = this.data.fab && this.data.fab.action ? this.data.fab.action : 'search';

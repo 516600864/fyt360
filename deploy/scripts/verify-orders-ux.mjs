@@ -52,10 +52,12 @@ ok(inRange, `时间区间 from=${day} 过滤生效`, `${r2.items.length} 条`);
 ok((r2.tabs?.all ?? 0) <= (base.tabs?.all ?? 0), '计数与筛选同口径（from 收窄 all 计数）', `all=${r2.tabs?.all} base=${base.tabs?.all}`);
 
 // ③ 状态筛选：取一个真实存在的状态做精确命中
+// ⛔ 参数名必须是复数 statuses（orders.ts extraFilters 白名单只认复数；单数 status 被静默忽略
+//    → 曾假绿：返回的是无过滤最新 N 条，恰好全为待支付。2026-10-10 被 meituan 已付款单戳破）
 const statuses = ['待支付', '已付款', '已结算', '已关闭', '待发货', '待核销', '已核销', '已收货', '退款审核中', '已退款', '部分退款'];
 let stHit = null;
 for (const s of statuses) {
-  const d = await orders(`tab=all&page=1&size=5&status=${encodeURIComponent(s)}`);
+  const d = await orders(`tab=all&page=1&size=5&statuses=${encodeURIComponent(s)}`);
   if (d.items.length) { stHit = { s, d }; break; }
 }
 if (stHit) {

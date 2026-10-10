@@ -1,19 +1,18 @@
 // 订单同步与结算（M2.3）：唯一落库面=订单（商品不入库铁律）
-// 拉取：四平台 CPS（jd getorderrow / tb getorder / pdd getorder / vip getorder，v1 网关）
-//      + 蚂蚁自有 4 类（v2 网关，2026-10-03 按官方接口清单逐个实测校准）：
-//        pforder（平台活动，免签）· dcorder（点餐，签名）· movieorder（影票，签名）· recharge/orderlist（权益兑换，签名+https+POST）
+// 拉取（D先生 2026-10-10 归口）：**只走好京客统一联盟 4 类**（v2 网关，v1 联盟接口已退役）：
+//        pforder（平台活动，免签）· diancan/orderlist（点餐，签名·复合包裹）· open/movieorder（影票，签名·secret单包裹）· recharge/orderlist（权益兑换，签名·复合包裹+https+POST）
 // 入库：order_sn = `${provider}:${平台单号}:${行键}` 幂等 upsert，三维状态机 only-forward
 // 结算：platform_status='settled' 且 rebate_at IS NULL → 事务内 元宝返还（1元=100元宝，决策#21）+ 佣金三跳分配
 // 冲销：refund_status='refunded' 且已结算且 chargeback_at IS NULL → 扣回元宝/佣金
 //
-// ⛔ 同步起点铁律（D先生 2026-10-04）：只同步 2026-09-20 之后，见 SYNC_SINCE 常量。
+// ⛔ 同步起点铁律（D先生 2026-10-10）：每站起点 = 建站时间 site.created_at，建站前订单必非本系统产生。
 // ⚠️ 归属口径（重要，勿再误判）：**apikey 是站点级资产，归属只看 site_id**。
 //    绝大多数单promoter 不是本站 user（实测 2000 条仅 1 条），那是正常的——
 //    推广位可能是别人的，但仍属本站收益。promoter_id 只作蚂蚁侧归因**线索**留档。
 //    有受益人（命中 user 表）才发元宝 + 佣金三跳；无主单照样标记 rebate_at 保证幂等去重。
-// 归因字段：jd positionId / pdd custom_parameters.uid / vip channelTag / tb extend_id /
+// 归因字段（转链统一走 open/union 全网转链，extend_id=user_id，D先生 2026-10-10 定）：
 //      蚂蚁：pforder 用 extend_id、dc/movie/recharge 用 uid（=user_id，均跟插件登记一致）
-//      positionId=1 / uid=1（站点默认位，M2.2 匿名兜底）不归因
+//      uid=1 / extend_id=1（站点默认位，匿名兜底）不归因
 import { pool } from '../db/client.js';
 import { hjkCall, md5Sign, md5SignWithApikey } from '../lib/haojingke.js';
 import { resolveHjkConfig } from '../lib/provider.js';
@@ -33,8 +32,6 @@ export interface PlatformStat {
   error?: string;
   /** 平台级跳过原因（如 SIGN_REQUIRED=签名算法待插件接入获取） */
   skipped?: string;
-  /** pforder 专属：因 pf_type 让位 v1 联盟而丢弃的行数 */
-  skippedByPfType?: number;
   /** 宽窗口按天分段的段数（>1 表示该平台走了分段拉，避免页数上限截断） */
   segments?: number;
 }
@@ -46,23 +43,20 @@ export interface SyncStats {
   chargedBack: number;
 }
 
-// ---------------- 时间工具 ----------------
-const pad = (n: number) => String(n).padStart(2, '0');
-/** 北京时间 'yyyy-MM-dd HH:mm:ss'（jd/tb 接口要求） */
-function bjStr(d: Date): string {
-  const t = new Date(d.getTime() + 8 * 3_600_000);
-  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())} ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}:${pad(t.getUTCSeconds())}`;
-}
-/** 北京时间字符串 → Date */
-function bjParse(s: string): Date | undefined {
-  if (!s) return undefined;
-  const d = new Date(s.replace(' ', 'T') + '+08:00');
-  return Number.isNaN(d.getTime()) ? undefined : d;
-}
 const toDate = (v: unknown): Date | undefined => {
   if (v == null || v === '' || v === 0) return undefined;
   const n = Number(v);
-  const d = Number.isFinite(n) && n > 1e9 ? new Date(n * (n < 1e12 ? 1000 : 1)) : new Date(String(v));
+  // ⛔ 时区铁律（2026-10-10 D先生 实锤「订单时间跑到未来 18:42」）：好京客字符串时间
+  //   （createdtime/updatedtime "YYYY-MM-DD HH:mm:ss"）是**北京时间**；容器 UTC 时区下
+  //   new Date(串) 会按 UTC 解析 → 入库快 +8h（10:42 存成 18:42 显示）。秒级时间戳无此问题。
+  //   无时区标记的日期串必须显式按 +08:00 解析。
+  const s = String(v);
+  const d =
+    Number.isFinite(n) && n > 1e9
+      ? new Date(n * (n < 1e12 ? 1000 : 1))
+      : /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(s)
+        ? new Date(s.replace(' ', 'T') + '+08:00')
+        : new Date(s);
   return Number.isNaN(d.getTime()) ? undefined : d;
 };
 const num = (v: unknown): number => {
@@ -152,6 +146,21 @@ function bizChannelOf(provider: string): string {
   return PROVIDER_BIZ_CHANNEL[provider] ?? '其他';
 }
 
+/** pforder pf_type → 渠道细名（2026-10-10 D先生：平台活动订单要标出具体业务）。
+ *  7/13/16 三种美团业态若都写「美团」则无法区分，按上游枚举细分。 */
+const PF_TYPE_CHANNEL: Record<number, string> = {
+  1: '京东', 2: '拼多多', 3: '淘宝', 6: '唯品会',
+  7: '美团分销联盟', 13: '美团联盟', 16: '美天赚',
+  14: '其他', 15: '快手', 30: '饿了么', 31: '滴滴',
+  32: '吃喝玩乐周边', 34: '流量卡', 40: '飞猪',
+};
+
+/** diancan pf → 品牌名（2026-10-10 D先生 给的枚举）。未知码兜底「点餐」。 */
+const DC_BRAND: Record<string, string> = {
+  nx: '奈雪', bsk: '必胜客', mdl: '麦当劳', xbk: '星巴克',
+  kdj: '肯德基', rx: '瑞幸', kd: '库迪', tst: '塔斯汀',
+};
+
 /**
  * ⛔ 归因解析最终口径（D先生 2026-10-04 定调「apikey 是站点级资产，归属只看 site_id」）。
  *
@@ -183,204 +192,16 @@ function attributionRaw(r: Record<string, unknown>): string {
 }
 
 // ---------------- 各平台拉取（返回归一化行） ----------------
-type Fetcher = (apikey: string, start: Date, end: Date) => Promise<NormOrder[]>;
+/** secret：签名类接口用（2026-10-10 铁律：**必须跟被同步站点走**，由调用方传入。
+ *  旧实现 fetcher 内部裸调 resolveHjkConfig() 恒取 site-a 的 secret —— niwo/yanshi
+ *  用自己 apikey + site-a secret 签名 → 上游必报「签名错误」（真机实锤，探针 probe-sign.mjs）。 */
+type Fetcher = (
+  apikey: string,
+  start: Date,
+  end: Date,
+  secret?: string | null
+) => Promise<NormOrder[]>;
 
-const fetchJd: Fetcher = async (apikey, start, end) => {
-  const out: NormOrder[] = [];
-  let pageNo = 1;
-  while (true) {
-    const { payload } = await hjkCall(
-      'jd/getorderrow',
-      { startTime: bjStr(start), endTime: bjStr(end), type: '3', pageNo: String(pageNo), pageSize: '200' },
-      apikey
-    );
-    const data = (payload.data ?? {}) as Record<string, unknown>;
-    const list = (data.data as Record<string, unknown>[] | undefined) ?? [];
-    for (const r of list) {
-      // jd validCode：1=有效(未结算) 2=无效 3=已结算（社区口径，待真实订单校准）
-      const valid = num(r.validCode);
-      const st: NormOrder['st'] = valid === 3 ? 'settled' : valid === 2 ? 'closed' : 'paid';
-      out.push({
-        provider: 'jd',
-        orderSn: String(r.orderId ?? ''),
-        rowKey: String(r.skuId ?? ''),
-        st,
-        refunded: valid === 2 && num(r.estimateFee) === 0 && num(r.skuReturnNum ?? 0) > 0,
-        payPrice: num(r.actualCosPrice) || num(r.estimateCosPrice) || num(r.price),
-        commission: num(r.actualFee) || num(r.estimateFee),
-        promoter: toPromoter(r.positionId),
-        title: String(r.skuName ?? ''),
-        orderTime: bjParse(String(r.orderTime ?? '')),
-        settledTime: bjParse(String(r.finishTime ?? '')),
-        // v1 联盟无独立 updated_at 字段，用 finishTime 兜底（有值即代表状态已推进到完成）
-        platformUpdatedAt: bjParse(String(r.finishTime ?? r.updateTime ?? '')) ?? undefined,
-        bizCategory: bizCategoryOf('jd'),
-        bizChannel: bizChannelOf('jd'),
-      });
-    }
-    if (!data.hasMore || pageNo >= MAX_PAGES || list.length === 0) break;
-    pageNo++;
-  }
-  return out;
-};
-
-const fetchTb: Fetcher = async (apikey, start, end) => {
-  const out: NormOrder[] = [];
-  let pageNo = 1;
-  let positionIndex = '';
-  while (true) {
-    const params: Record<string, string | number> = {
-      start_time: bjStr(start),
-      end_time: bjStr(end),
-      query_type: '1',
-      page_no: String(pageNo),
-      page_size: '50',
-    };
-    if (pageNo > 1 && positionIndex) {
-      params.jump_type = '1';
-      params.position_index = positionIndex;
-    }
-    const { payload } = await hjkCall('tb/getorder', params, apikey);
-    const data = (payload.data ?? {}) as Record<string, unknown>;
-    const results = (data.results ?? {}) as Record<string, unknown>;
-    // publisher_order_dto 单条时是对象、多条时是数组（实测）
-    const dto = results.publisher_order_dto;
-    const list: Record<string, unknown>[] = Array.isArray(dto) ? dto : dto && typeof dto === 'object' ? [dto] : [];
-    for (const r of list) {
-      // tk_status：12=付款 13=关闭 14=确认收货 3=结算成功
-      const tk = num(r.tk_status);
-      const st: NormOrder['st'] = tk === 3 ? 'settled' : tk === 13 ? 'closed' : tk === 12 || tk === 14 ? 'paid' : 'created';
-      // 归因字段候选（转链传 extend_id，回流映射待真实订单校准）
-      const promoter = toPromoter(r.adid) ?? toPromoter(r.ext1) ?? toPromoter(r.special_id);
-      out.push({
-        provider: 'tb',
-        orderSn: String(r.trade_id ?? ''),
-        st,
-        refunded: tk === 13,
-        // 实付价：2026-09-23 实测响应无 total_goods_fee/price 字段（存量单 pay_price=0 根因），
-        // 真身=alipay_total_price（支付宝实付总额），备选 item_price×item_num（商品原价合计）
-        payPrice: num(r.alipay_total_price) || num(r.item_price) * num(r.item_num),
-        // 佣金：已结算单用实际 pub_share_fee，未结算/为 0 时回退预估 pub_share_pre_fee
-        commission: num(r.pub_share_fee) || num(r.pub_share_pre_fee),
-        promoter,
-        title: String(r.item_title ?? ''),
-        orderTime: toDate(r.tk_create_time),
-        settledTime: toDate(r.settle_time),
-        // v1 联盟无独立 updated_at 字段，用 settle_time 兜底
-        platformUpdatedAt: toDate(r.settle_time) ?? toDate(r.tk_create_time) ?? undefined,
-        bizCategory: bizCategoryOf('tb'),
-        bizChannel: bizChannelOf('tb'),
-      });
-    }
-    const hasNext = String(data.has_next ?? 'false') === 'true';
-    const pi = String(data.position_index ?? '');
-    positionIndex = pi ? pi.split('|').pop() ?? '' : '';
-    if (!hasNext || pageNo >= MAX_PAGES || list.length === 0) break;
-    pageNo++;
-  }
-  return out;
-};
-
-const fetchPdd: Fetcher = async (apikey, start, end) => {
-  const out: NormOrder[] = [];
-  let page = 1;
-  while (true) {
-    const { payload } = await hjkCall(
-      'pdd/getorder',
-      {
-        start_update_time: Math.floor(start.getTime() / 1000),
-        end_update_time: Math.floor(end.getTime() / 1000),
-        page: String(page),
-        page_size: '100',
-      },
-      apikey
-    );
-    const data = (payload.data ?? {}) as Record<string, unknown>;
-    const list = (data.order_list as Record<string, unknown>[] | undefined) ?? [];
-    for (const r of list) {
-      // custom_parameters 为转链时注入的 JSON {"uid":"<user_id>"}（旧单兼容纯数字）
-      let promoter: number | undefined;
-      const cp = r.custom_parameters;
-      if (typeof cp === 'string' && cp.startsWith('{')) {
-        try {
-          promoter = toPromoter(JSON.parse(cp).uid);
-        } catch {
-          /* 忽略非 JSON */
-        }
-      } else {
-        promoter = toPromoter(cp);
-      }
-      const settledTs = r.order_settle_time != null ? num(r.order_settle_time) : 0;
-      const desc = String(r.order_status_desc ?? '');
-      const st: NormOrder['st'] = settledTs > 0 ? 'settled' : /关|取消|失效/.test(desc) ? 'closed' : num(r.order_pay_time) > 0 ? 'paid' : 'created';
-      out.push({
-        provider: 'pdd',
-        orderSn: String(r.order_sn ?? ''),
-        st,
-        refunded: false,
-        payPrice: num(r.order_amount) / 100,
-        commission: num(r.promotion_amount) / 100,
-        promoter,
-        title: String(r.goods_name ?? ''),
-        pic: String(r.goods_thumbnail_url ?? ''),
-        orderTime: toDate(num(r.order_pay_time) || r.order_create_time),
-        settledTime: toDate(settledTs),
-        // pdd 有真实的 order_update_time，用它当窗口游标最准
-        platformUpdatedAt: toDate(num(r.order_update_time) || settledTs || r.order_create_time) ?? undefined,
-        bizCategory: bizCategoryOf('pdd'),
-        bizChannel: bizChannelOf('pdd'),
-      });
-    }
-    const total = num(data.total_count);
-    if (page * 100 >= total || list.length === 0 || page >= MAX_PAGES) break;
-    page++;
-  }
-  return out;
-};
-
-const fetchVip: Fetcher = async (apikey, start, end) => {
-  const out: NormOrder[] = [];
-  let pageindex = 1;
-  while (true) {
-    const { payload } = await hjkCall(
-      'vip/getorder',
-      {
-        pageindex: String(pageindex),
-        pagesize: '100',
-        updateTimeStart: start.getTime(),
-        updateTimeEnd: end.getTime(),
-      },
-      apikey
-    );
-    const data = (payload.data ?? {}) as Record<string, unknown>;
-    const list = (data.orderInfoList as Record<string, unknown>[] | undefined) ?? [];
-    for (const r of list) {
-      // vip status：0=不合格 1=待定 2=已完结；settled 1=蚂蚁侧已结算
-      const details = (r.detailList as Record<string, unknown>[] | undefined) ?? [];
-      const payPrice = details.reduce((s, d) => s + num(d.commissionTotalCost), 0) || num(r.commission);
-      const st: NormOrder['st'] = num(r.settled) === 1 ? 'settled' : num(r.status) === 0 ? 'closed' : 'paid';
-      out.push({
-        provider: 'vip',
-        orderSn: String(r.orderSn ?? ''),
-        st,
-        refunded: false,
-        payPrice,
-        commission: num(r.commission),
-        promoter: toPromoter(r.channelTag),
-        title: String(details[0]?.goodsName ?? ''),
-        pic: String(details[0]?.goodsThumb ?? ''),
-        orderTime: toDate(r.orderTime),
-        settledTime: toDate(r.settledTime),
-        platformUpdatedAt: toDate(r.settledTime ?? r.orderTime) ?? undefined,
-        bizCategory: bizCategoryOf('vip'),
-        bizChannel: bizChannelOf('vip'),
-      });
-    }
-    if (list.length < 100 || pageindex >= MAX_PAGES) break;
-    pageindex++;
-  }
-  return out;
-};
 
 /**
  * pf_type →落库 provider 映射（D先生 2026-10-04 定：与蚂蚁星球保持一致）。
@@ -413,29 +234,9 @@ const PF_TYPE_FALLBACK = 'other';
 function providerOfPfType(t: number): string {
   return PF_TYPE_PROVIDER[t] ?? PF_TYPE_FALLBACK;
 }
-/** pforder 落库后的全部 provider 桶（查水位/结算范围时用） */
-const PF_TYPE_PROVIDER_BUCKETS: string[] = [...new Set(Object.values(PF_TYPE_PROVIDER))];
-
 /**
- * ⛔ pforder 里**必须丢弃**的 pf_type —— 它们是 v1 联盟接口同一订单的「粗粒度镜像」。
- *
- * 实测铁证（2026-10-04，orderId 3640401013826930 京东单，两接口同时返回）：
- *   v1 jd/getorderrow : actualCosPrice=10.5(元) actualFee=0.11(元) skuId=10235021573650
- *                       positionId=100001001496133 validCode=17 finishTime 有值
- *   v2 pforder        : cosprice=1050(分)  commission=8(分) 无 skuId 无推广位 isbalance=0
- *
- * 结论：pf 侧是**分**单位且佣金更小、无明细、无归因、无结算信号。若让它按同 provider
- * 落库，`order_sn = ${provider}:${orderid}:` 会与 v1 完全撞键 → upsert 互相覆盖，
- * 把 v1 已写对的「元」金额覆盖成分/更小的佣金，**看板收益直接算错**。
- * tb 已验证同命名空间（pf_type=3 orderid 3317079756185003181 === v1 trade_id）。
- * 故这四类统一让位给 v1 联盟接口（v1 才是权威口径：有 sku 级明细 + 推广位 + 结算信号）。
- */
-const PF_TYPES_YIELD_TO_V1 = new Set([1, 2, 3, 6]);
-
-/** pf_type 让位丢弃计数（模块级：Fetcher 签名只有 3 参，用旁路计数器回传给 runOrdersync 的 stats） */
-let pfSkipCount = 0;
-const resetPfSkipCount = () => { pfSkipCount = 0; };
-const takePfSkipCount = () => { const v = pfSkipCount; pfSkipCount = 0; return v; };
+ * pforder 落库后的全部 provider 桶（查水位/结算范围时用） */
+const PF_TYPE_PROVIDER_BUCKETS: string[] = [...new Set(Object.values(PF_TYPE_PROVIDER))];
 
 // 蚂蚁自有 4 类（v2 网关）。实测 2026-10-03 逐个接口验证：
 //   ① pforder（平台活动 pf_type 1~40）—— **免签**，可正常拉取
@@ -463,16 +264,19 @@ const mayiFetcher = (
     /** ⚠️ 金额单位换算：上游各接口不统一（实测 dcorder 是「元」，pforder/movie/recharge 是「分」）
      *  归一到「元」。填 1 表示上游已是元不换算 */
     moneyUnit?: number;
-      /** pforder：按 pf_type 映射语义化 provider（与 v1 联盟接口同桶去重） */
+      /** pforder：按 pf_type 映射语义化 provider */
     byPfType?: boolean;
-    /** pforder：pf_type 让位判定（1/2/3/6 归v1，见PF_TYPES_YIELD_TO_V1） */
-    skipPfType?: boolean;
+    /** 签名包裹风格（2026-10-10 探针实锤两种口径并存）：
+     *  'apikey' = `apikey=X&secret=Y` 复合包裹（diancan/recharge，默认）
+     *  'secret' = `secret=Y` 单包裹（open/movieorder —— 文档通用算法原样，复合包裹反而 -1 签名错误） */
+    signStyle?: 'apikey' | 'secret';
+    /** 行级渠道细分（2026-10-10 D先生：点餐单要标品牌）：返回品牌名则覆盖桶默认 biz_channel。
+     *  dc 用它把响应 pf 字段（nx/bsk/mdl…）映射成奈雪/必胜客/麦当劳… */
+    chanOf?: (r: Record<string, unknown>) => string | undefined;
   }
-): Fetcher => async (apikey, start, end) => {
-  const cfg = await resolveHjkConfig(); // 取 api_secret（跟随默认站点，签名判定用）
-  const secret = opts?.signed ? cfg.apiSecret : null;
+): Fetcher => async (apikey, start, end, secret) => {
   if (opts?.signed && !secret) {
-    // 无密钥 → 该类整体跳过（在 FETCHERS 层已由 SKIP 拦截，这里是兜底）
+    // 无密钥 → 该类整体跳过（在 FETCHERS 层已由 runOrdersync 按 cfg.apiSecret 拦截，这里是兜底）
     return [];
   }
 
@@ -499,10 +303,16 @@ const mayiFetcher = (
 
     let sign: string | undefined;
     if (opts?.signed && secret) {
-      // ⛔ 签名包裹铁律（2026-10-04 实测反推）：三个签名类接口**全部**要
-      //    `apikey=X&secret=Y` 复合包裹（md5(apikey=..&secret=..&strparam&apikey=..&secret=..)）。
-      //    只用 secret= 包裹 → movie/diancan 报「签名验证错误」、recharge 报「签名错误」。
-      sign = md5SignWithApikey(params, apikey, secret);
+      // ⛔ 签名包裹铁律（2026-10-10 三站×3 接口×2 包裹 探针复测实锤，probe-sign.mjs）：
+      //    diancan/recharge 两接口**只认** `apikey=X&secret=Y` 复合包裹
+      //    （md5(apikey=..&secret=..&strparam&apikey=..&secret=..)）。
+      //    ⚠️ 例外（2026-10-10 D先生甩文档 + niwo 实测 9 组）：open/movieorder **只认
+      //    `secret=Y` 单包裹**（官方通用文档算法原样）——复合包裹在这条路径反而全拒 -1。
+      //    即：两种口径并存，按 signStyle 分流，别再「以一条实测统一所有接口」。
+      //    ⚠️ 前提二：secret 必须跟 apikey **同站配套**（本函数第 4 参，见 Fetcher 注释）。
+      sign = opts?.signStyle === 'secret'
+        ? md5Sign(params, secret)
+        : md5SignWithApikey(params, apikey, secret);
     }
 
     const { payload } = await hjkCall(path, params, apikey, 'v2', {
@@ -519,14 +329,11 @@ const mayiFetcher = (
       //    旧代码 `if (!promoter) continue` 把这些单全丢了 → 一律入库，promoter 缺失记 0。
       const promoter = toPromoter(r.extend_id) ?? toPromoter(r.uid);
       const rawAttr = attributionRaw(r);
-      const pfTypeRaw = opts?.byPfType ? num(r.pf_type) : 0;
-      // pf_type 1/2/3/6 让位 v1联盟接口（同一订单的粗粒度镜像，会覆盖正确金额）
-      if (opts?.skipPfType && PF_TYPES_YIELD_TO_V1.has(pfTypeRaw)) {
-        pfSkipCount++;
-        continue;
-      }
-      const { st, refunded } = mapStatus(r);
       const pfType = opts?.byPfType ? num(r.pf_type) || undefined : undefined;
+      // open/movieorder 响应无 goods_name 系字段，信息在 info 数组：
+      //   [0]=影院名 [1]=影厅 [2]=语言版本 [3]=场次时间 [4]=票价文案 [5]=影片名 [6]=海报url [7]=地址 [8]=城市
+      const mvInfo = Array.isArray(r.info) ? (r.info as unknown[]).map((x) => String(x ?? '')) : null;
+      const { st, refunded } = mapStatus(r);
       // 落库桶：pforder 按 pf_type 语义化，其余用 fetcher 自身的 provider
       const bucket = pfType ? providerOfPfType(pfType) : provider;
       out.push({
@@ -544,8 +351,10 @@ const mayiFetcher = (
         promoter,
         pfType,
         attrRaw: rawAttr || undefined,
-        title: String(r.goods_name ?? r.item_name ?? r.storeName ?? r.goodsName ?? r.storeName ?? ''),
-        pic: typeof r.goods_img === 'string' ? r.goods_img : typeof r.goodImg === 'string' ? r.goodImg : undefined,
+        title: String(r.goods_name ?? r.item_name ?? r.storeName ?? r.goodsName ?? mvInfo?.[5] ?? ''),
+        pic: typeof r.goods_img === 'string' ? r.goods_img
+          : typeof r.goodImg === 'string' ? r.goodImg
+          : mvInfo?.[6] || undefined,
         // ⚠️ 三类时间必须分清（D先生 2026-10-04「下单时间是不是搞错了」）：
         //   orderTime  = 下单时间（业务事实，落 paid_at）
         //   settledTime = 完成/结算时间（落 settled_at）
@@ -555,7 +364,12 @@ const mayiFetcher = (
         settledTime: toDate(r.completetime ?? r.finishtime),
         platformUpdatedAt: toDate(r.updated_at ?? r.updatedtime ?? r.updatedAt),
         bizCategory: bizCategoryOf(bucket),
-        bizChannel: bizChannelOf(bucket),
+        // 渠道细分（2026-10-10 D先生：点餐标品牌、平台活动标具体业态）：
+        //   pforder 按 pf_type（美团分销联盟/美团联盟/美天赚…）；dc 按响应 pf 字段（麦当劳/奈雪…）。
+        //   细分缺省回落桶默认名。upsert 对 biz_channel 全量覆盖 → 修好后重拉自动回填历史单。
+        bizChannel: (pfType ? PF_TYPE_CHANNEL[pfType] : undefined)
+          ?? opts?.chanOf?.(r)
+          ?? bizChannelOf(bucket),
       });
     }
     // 翻页判定：finish(pf/dc/movie) / hasMore(recharge) / data 空 / 达上限
@@ -574,47 +388,50 @@ const mayiFetcher = (
   return out;
 };
 
-// 状态映射（各业务枚举见官方文档 + 实测响应）
-// isbalance：蚂蚁星球订单佣金结算状态，0否1是 —— ⚠️ **实测 pforder 恒为 0**（6 天 2000+ 行全 0），
-//   不能作为结算判据；真实结算信号在 valistatus（见 pfSettledByStatus）。
-const isBalanceSettled = (r: Record<string, unknown>) => num(r.isbalance) === 1;
-
 /**
- * pforder 结算/退款判定 —— 以 **valistatus 中文态** 为唯一判据（2026-10-04 实测 6 天全量枚举）：
+ * pforder 状态判定 —— **结构化字段为主判据（2026-10-10 D先生 官方口径），中文态只兜退款/无效类**：
  *
- *   结算类：有效-结算(1122) 已结算(5) 订单结算(2)      → settled
- *   退款类：无效-已退款(265) 无效-已退回(264) 售中退款/售后退款 → refunded
- *   关闭类：无效-已关闭(232) 无效-取消(21) 无效-未支付(63) 无效-已取消(2) 无效订单(1) → closed
- *   其余：有效-完成/已签收/已付款/处理中…→ paid
+ *   主流转（yn / finishtime / isbalance 三字段，官方文档口径）：
+ *     yn=0                      → 待付款 → created
+ *     yn=1 & finishtime=0       → 已付款 → paid
+ *     yn=1 & finishtime>0       → 已完成 → paid
+ *     yn=1 & isbalance=1        → 已结算（蚂蚁星球已结算）→ settled
  *
- * ⚠️ 旧实现只判`yn===0 || validcode==='0'`，而 pf16 结算单是 `validcode=6,yn=1` →
- *   全部落进 'paid'，**佣金永远不结算**（这就是「同步进来但收益为 0」的第二个根因）。
+ *   特殊态（yn 可能仍为 0，中文态先行拦截）：
+ *     退款类（已退款/已退回）            → refunded（正交标记，platform_status 记 closed）
+ *     关闭类（关闭/取消/无效/失效/未支付）→ closed
  *
- * @returns settled/refunded/closed/paid 四态；refunded 是**正交标记**（platform_status 仍记 closed）
+ * ⛔ 血泪（2026-10-10 京东单 3647454013240990 被错标已付款）：旧版按 valistatus 中文态
+ *    判定且兜底 return 'paid' ——「待付款」不含任何关键词，掉进兜底 → yn=0 的单全标 paid。
+ *    中文匹配是猜测，yn/finishtime/isbalance 是事实；别再用「含某词就归某态」的启发式。
+ *
+ * @returns settled/refunded/closed/paid/created 五态；refunded 是**正交标记**（platform_status 仍记 closed）
  */
-function pfSettledByStatus(vs: string): 'settled' | 'refunded' | 'closed' | 'paid' {
-  if (/结算/.test(vs)) return 'settled';
+function pfSettledByStatus(r: Record<string, unknown>): 'settled' | 'refunded' | 'closed' | 'paid' | 'created' {
+  const vs = String(r.valistatus ?? '');
   if (/退款|退回/.test(vs)) return 'refunded';
-  if (/关闭|取消|未支付|无效|失效/.test(vs)) return 'closed';
-  return 'paid';
+  if (/关闭|取消|无效|失效|未支付/.test(vs)) return 'closed';
+  if (/结算/.test(vs) || num(r.isbalance) === 1) return 'settled';
+  if (num(r.yn) === 1) return 'paid'; // 已付款(finishtime=0) / 已完成(finishtime>0)
+  return 'created'; // yn=0 待付款
 }
 
 /** ① pforder 平台活动：免签；cosprice/commission 单位=分；列表在 data.data
  *  ⚠️ provider 不再是 'pf' 单桶，而是逐条按 pf_type 落jd/pdd/tb/meituan/... （见 providerOfPfType）
- *  ⚠️ 结算/退款/关闭判据= valistatus 中文态（isbalance 实测恒 0，不可用） */
+ *  ⚠️ 状态判据= yn/finishtime/isbalance 结构化字段（2026-10-10 D先生 官方口径，见 pfSettledByStatus） */
 const fetchPf = mayiFetcher(
   'index/pforder',
   'pf',
   (r) => {
-    const s = pfSettledByStatus(String(r.valistatus ?? ''));
+    const s = pfSettledByStatus(r);
     return {
-      // refunded 是正交标记：platform_status 只在 closed/paid/settled 三态里选
+      // refunded 是正交标记：platform_status 在 created/paid/closed/settled 里选
       st: s === 'refunded' ? 'closed' : s,
       // 已退款/已退回 = 佣金冲销；关闭类只是没成交，不冲销（本来也没结算）
       refunded: s === 'refunded',
     };
   },
-  { listKey: 'data', byPfType: true, skipPfType: true }
+  { listKey: 'data', byPfType: true }
 );
 
 /**
@@ -640,28 +457,44 @@ const fetchDc = mayiFetcher(
       refunded: s === 5 || /退款/.test(statusStr) || num(r.returnprice ?? 0) > 0,
     };
   },
-  { signed: true, rechargeStyle: true, moneyUnit: 1 }
+  {
+    signed: true, rechargeStyle: true, moneyUnit: 1,
+    // 品牌细分（2026-10-10 D先生）：响应 pf 字段 → 品牌名（nx 奈雪/bsk 必胜客/mdl 麦当劳/
+    // xbk 星巴克/kdj 肯德基/rx 瑞幸/kd 库迪/tst 塔斯汀），未知码回落「点餐」
+    chanOf: (r) => DC_BRAND[String(r.pf ?? '')],
+  }
 );
 
 /**
- * ③ movie/orderlist 电影票：需签名；payprice 单位=分（实测 7722/8580）
+ * ③ open/movieorder 电影票（2026-10-10 换路 + 换签名，D先生甩官方文档后实测翻案）：
  *
- * ⛔ 路径同上：文档写 `movieorder`，真实是 `v2/api/movie/orderlist`。
- * ⚠️ 实测该 apikey total=0（真没卖票），接口本身通、签名通，别再当 bug 查。
+ * ⛔ 两条路径是**两个不同接口**，别再合并结论：
+ *   - `movie/orderlist`（旧用）：返回池**不含未支付关闭单** → niwo 关闭单 53202610101042114031
+ *     在这里 30 天宽窗 total=0，之前被误判「上游不吐未支付单」。
+ *   - `open/movieorder`（文档原路径，本实现）：**含未支付关闭单**（实测同单 total=1 拉到）。
+ *     且签名只认 `secret=` 单包裹（signStyle:'secret'），复合包裹 -1；时间参数只认
+ *     **秒级时间戳**（日期串 'YYYY-MM-DD HH:mm:ss' 实测 total=0）。
+ * 响应字段：orderid/uid（归因）/status/statusstr/payprice（分）/commission（分）/info 数组（见上）。
  */
 const fetchMovie = mayiFetcher(
-  'movie/orderlist',
+  'open/movieorder',
   'movie',
   (r) => {
-    // status：1已付款 2受理中 3待出票 5已结算 6待付款 10关闭
+    // status：6待付款 1已付款 2受理中 3待出票 5已结算 10关闭（实测关闭单 status=10/statusstr=订单关闭）
     const s = num(r.status);
     const statusStr = String(r.statusstr ?? '');
     return {
-      st: s === 10 || s === 5 || /关闭|退款/.test(statusStr) ? 'closed' : s >= 1 ? 'paid' : 'created',
-      refunded: num(r.return_price ?? 0) > 0 || String(r.refundid ?? '') !== '',
+      st: s === 10 || /关闭|退款|失败/.test(statusStr)
+        ? 'closed'
+        : s === 5
+          ? 'settled'
+          : s >= 1
+            ? 'paid'
+            : 'created',
+      refunded: String(r.refundid ?? '') !== '' || num(r.return_price ?? 0) > 0,
     };
   },
-  { signed: true, rechargeStyle: true }
+  { signed: true, rechargeStyle: true, signStyle: 'secret' }
 );
 
 /**
@@ -695,11 +528,11 @@ const fetchRecharge = mayiFetcher(
   { signed: true, rechargeStyle: true }
 );
 
+// ⛔ 转链/订单归口（D先生 2026-10-10）：v1 联盟接口（jd/tb/pdd/vip getorder*）全部退役，
+//    只走好京客统一联盟 4 类：pforder（1京东/2拼多多/3淘宝/6唯品会/7美团分销/13美团联盟/
+//    14其他/15快手/16美天赚/30饿了么/31滴滴/32吃喝玩乐周边/34流量卡/40飞猪）+
+//    dc（点餐）+ recharge（权益充值）+ movie（影票）。pf_type 1/2/3/6 不再让位，直接落桶。
 const FETCHERS: Record<string, Fetcher> = {
-  jd: fetchJd,
-  tb: fetchTb,
-  pdd: fetchPdd,
-  vip: fetchVip,
   pf: fetchPf,
   dc: fetchDc,
   recharge: fetchRecharge,
@@ -753,11 +586,8 @@ const SEGMENT_BUDGET = 10;
 const SEGMENT_CONCURRENCY = 4;
 
 /**
- * 允许「水位续拉」的平台白名单。
- *
- * ⛔ jd 必须排除：它硬限制「查询时间范围不超过 1 小时」，水位重叠加固定 1h 窗口
- *   会突破上限，上游直接报 `无效请求-查询时间范围超过1小时`（实测 2026-10-04）。
- *   窄窗口平台（jd 1h / tb 3h / pdd 24h / vip 2h）一律用固定窗口。
+ * 允许「水位续拉」的平台白名单：归口后全部 4 类都是宽窗口平台（updated_at 筛），
+ * 全部走水位续拉，无例外。
  */
 const WATERMARK_PROVIDERS = new Set(['pf', 'dc', 'movie', 'recharge']);
 
@@ -935,24 +765,37 @@ async function settleDue(siteId: string, providers: string[]): Promise<number> {
   //   旧代码对每条都发一次「抢占 UPDATE」→ 1562 次串行网关往返 → 必然 504/500。
   //   实测单条批量 UPDATE 一次标记 1926 行、耗时 141ms。
   //   语义完全等价（都是「标 rebate_at 但不发元宝/佣金」），只是把 N 次往返压成 1 次。
-  const bulk = await pool.query(
-    `UPDATE "order" o SET rebate_at = now()
-      WHERE o.site_id = $1 AND o.provider = ANY(string_to_array($2, ','))
-        AND o.platform_status = 'settled' AND o.rebate_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM "user" u WHERE u.user_id = COALESCE(o.promoter_id, o.buyer_id))
-      RETURNING id`,
-    [siteId, P]
-  );
-  count += bulk.rows.length;
+  // ⛔ 网关单次结果上限 1000 行（RETURNING 也算结果集）：老账户一轮可涌入数千已结算单，
+  //   2026-10-10 site-a 实测 3138 单直接爆「Query result exceeds maximum allowed row count」。
+  //   改为「每次圈 ≤1000 行标记」循环到清零。
+  for (;;) {
+    const bulk = await pool.query(
+      `UPDATE "order" o SET rebate_at = now()
+        WHERE o.id IN (
+          SELECT o2.id FROM "order" o2
+           WHERE o2.site_id = $1 AND o2.provider = ANY(string_to_array($2, ','))
+             AND o2.platform_status = 'settled' AND o2.rebate_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM "user" u WHERE u.user_id = COALESCE(o2.promoter_id, o2.buyer_id))
+           LIMIT 1000
+        ) RETURNING 1`,
+      [siteId, P]
+    );
+    count += bulk.rows.length;
+    if (bulk.rows.length < 1000) break;
+  }
 
   // 有主单才需要逐条发元宝 + 佣金三跳（实测占比极低，通常个位数）
+  // ⛔ 同 1000 行上限：SELECT 圈批循环；progressed=0 兜底防死循环（抢不到=有人抢过，安全退出）
+  for (let guard = 0; guard < 500; guard++) {
   const { rows: due } = await pool.query(
     `SELECT o.id, o.buyer_id, o.promoter_id, o.pay_price, o.commission, o.order_sn, u.user_id AS hit_user
        FROM "order" o
        JOIN "user" u ON u.user_id = COALESCE(o.promoter_id, o.buyer_id)
-      WHERE o.site_id = $1 AND o.provider = ANY(string_to_array($2, ',')) AND o.platform_status = 'settled' AND o.rebate_at IS NULL`,
+      WHERE o.site_id = $1 AND o.provider = ANY(string_to_array($2, ',')) AND o.platform_status = 'settled' AND o.rebate_at IS NULL LIMIT 1000`,
     [siteId, P]
   );
+  if (!due.length) break;
+  let progressed = 0;
   for (const o of due) {
     const target = Number(o.hit_user ?? 0);
     if (target <= 0) continue;
@@ -1003,11 +846,14 @@ async function settleDue(siteId: string, providers: string[]): Promise<number> {
         }
       }
       count++;
+      progressed++;
     } catch (e) {
       // 处理失败回置占位，下轮重试（结算 CTE 幂等，重放安全）
       await pool.query(`UPDATE "order" SET rebate_at = NULL WHERE id = $1`, [o.id]);
       throw e;
     }
+  }
+  if (due.length < 1000 || progressed === 0) break;
   }
   return count;
 }
@@ -1049,25 +895,35 @@ async function chargebackDue(siteId: string, providers: string[]): Promise<numbe
   const P = providers.join(',');
   let count = 0;
   // ⚠️ 与 settleDue 同性能修复：无主退款单走单条批量 UPDATE（不扣回任何东西，只需标幂等）。
-  const bulkCb = await pool.query(
-    `UPDATE "order" o SET chargeback_at = now()
-      WHERE o.site_id = $1 AND o.provider = ANY(string_to_array($2, ','))
-        AND o.refund_status = 'refunded' AND o.rebate_at IS NOT NULL AND o.chargeback_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM "user" u WHERE u.user_id = COALESCE(o.promoter_id, o.buyer_id))
-      RETURNING id`,
-    [siteId, P]
-  );
-  count += bulkCb.rows.length;
+  // ⛔ 同 settleDue：1000 行结果上限 → 圈批循环
+  for (;;) {
+    const bulkCb = await pool.query(
+      `UPDATE "order" o SET chargeback_at = now()
+        WHERE o.id IN (
+          SELECT o2.id FROM "order" o2
+           WHERE o2.site_id = $1 AND o2.provider = ANY(string_to_array($2, ','))
+             AND o2.refund_status = 'refunded' AND o2.rebate_at IS NOT NULL AND o2.chargeback_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM "user" u WHERE u.user_id = COALESCE(o2.promoter_id, o2.buyer_id))
+           LIMIT 1000
+        ) RETURNING 1`,
+      [siteId, P]
+    );
+    count += bulkCb.rows.length;
+    if (bulkCb.rows.length < 1000) break;
+  }
 
-  // 有主退款单才需真扣回
+  // 有主退款单才需真扣回（同 1000 行上限圈批；progressed=0 兜底）
+  for (let guard = 0; guard < 500; guard++) {
   const { rows: due } = await pool.query(
     `SELECT o.id, o.promoter_id, o.buyer_id, o.pay_price, o.order_sn, u.user_id AS hit_user
        FROM "order" o
        JOIN "user" u ON u.user_id = COALESCE(o.promoter_id, o.buyer_id)
       WHERE o.site_id = $1 AND o.provider = ANY(string_to_array($2, ',')) AND o.refund_status = 'refunded'
-        AND o.rebate_at IS NOT NULL AND o.chargeback_at IS NULL`,
+        AND o.rebate_at IS NOT NULL AND o.chargeback_at IS NULL LIMIT 1000`,
     [siteId, P]
   );
+  if (!due.length) break;
+  let progressed = 0;
   for (const o of due) {
     const target = Number(o.hit_user ?? 0);
     if (target <= 0) continue;
@@ -1091,75 +947,34 @@ async function chargebackDue(siteId: string, providers: string[]): Promise<numbe
         await pool.query(chargebackCommissionSql, [o.id]);
       }
       count++;
+      progressed++;
     } catch (e) {
       await pool.query(`UPDATE "order" SET chargeback_at = NULL WHERE id = $1`, [o.id]);
       throw e;
     }
+  }
+  if (due.length < 1000 || progressed === 0) break;
   }
   return count;
 }
 
 // ---------------- 主入口 ----------------
 /**
- * ⛔ **同步起点铁律（D先生 2026-10-04钦定）**：只同步 2026-09-20 之后的订单。
+ * ⛔ **同步起点铁律（D先生 2026-10-10 归口钦定）**：每站起点 = **建站时间 site.created_at**。
  *
- * 为什么必须是模块级常量而不是「默认参数」：测试 apikey 累积历史订单 57 万条
- * （pforder 实测 total=577548），任何一条绕过这个闸的路径都会去拉 9/20 之前的海量数据，
- * 打爆上游且毫无业务价值（站点 2026-09-20 才上线）。
- * 所以：**所有拉取路径（定时器 / 手动 / backfill）统一在此收口**，谁也别想绕过。
+ * 建站之前的订单必然不是本系统产生的（好京客账户里的历史单一律不回灌）；
+ * 之后的订单即使 extend_id/uid 对不上本站 user_id 也照常入站（promoter 仅归因线索，
+ * 不是落库判据）。所有拉取路径（定时器 / 手动 / backfill）统一收口到该下限。
  *
- * 例外：`opts.tbWindow` 是 tb存量修复专用（2026-09-23 pay_price=0），调用方显式指定，
- * 允许精确到任意历史区间，但仍不允许早于本常量。
+ * 旧全局常量 SYNC_SINCE（2026-09-20）退役：它是单站时代的产物，多租户下不同站
+ * 建站时间不同，统一用建站时间更准。
  */
-const SYNC_SINCE = new Date('2026-09-20T00:00:00+08:00');
 
-/** 把起点收敛到 SYNC_SINCE 之后（所有 fetcher 调用前的唯一入口） */
-function clampSince(start: Date): Date {
-  return start.getTime() < SYNC_SINCE.getTime() ? new Date(SYNC_SINCE) : start;
+/** 把起点收敛到建站时间之后（所有 fetcher 调用前的唯一入口） */
+function clampSince(start: Date, siteCreatedAt: Date): Date {
+  return start.getTime() < siteCreatedAt.getTime() ? new Date(siteCreatedAt) : start;
 }
 
-/**
- * 常规窗口（满足各平台时间窗限制）：jd 1h / tb 3h / pdd 24h / vip 2h
- *
- * ⛔ **pf 必须 720h（30天）**（2026-10-04 实测铁证）：
- *   pforder 的 querytype=2 是按 **updated_at（状态更新时刻）** 筛窗口的。
- *   D先生点名的饿了么单 `4064786215607488142`：updated_at = 2026-10-01T03:32Z，
- *   距实测时刻 **77.8 小时** —— 而当时窗口是 72h，**只差 5.8 小时就被切掉**。
- *   扫窗口宽度实测：72h→0 单/ 80h→1 单 / 168h→1 单 / 720h→1 单。
- *
- *   ⚠️ 这不是「刚好差一点」的偶发，而是**必然漏单**：
- *   一单只要状态最后一次更新距今超过窗口，就永远不会被拉到 ——
- *   无论同步跑多少次。实测 local 桶 928 单中 875 单是「2023 年下单、近天才更新状态」，
- *   固定窄窗口会漏掉其中绝大多数。
- *
- *   成本可控：pf 30 天窗口 total 远小于「按天分段全量回填」，且水位机制（见 syncWatermark）
- *   会把已同步后的窗口自动收窄到「水位−6h」，不会每轮都重扫 30 天。
- *
- * 结算滞后实测：下单→结算更新 p50=295h(12天)、p95=516h(21天)、max=760h(31天)，
- * 30 天窗口刚好覆盖 p95，尾部 31 天的极少数由「9/20 起按天回填」兜底。
- *
- * ⚠️ **dc/movie/recharge 给 720h**：实测这三类单量极低（点餐 72h 仅 1 单、
- *   影票 0 单、充值 9/20 后 0 单），窗口窄了等于没跑。30 天能把几乎所有真实单覆盖到。
- */
-function windowHours(provider: string): number {
-  switch (provider) {
-    case 'jd':
-      return 1;
-    case 'tb':
-      return 3;
-    case 'pdd':
-      return 24;
-    case 'vip':
-      return 2;
-    case 'pf':
-    case 'dc':
-    case 'movie':
-    case 'recharge':
-      return 720;
-    default:
-      return 2;
-  }
-}
 
 /**
  * 每站点的「已同步水位」：该站点某个 provider 已落库的**最大 platform_updated_at**。
@@ -1203,24 +1018,24 @@ const MAYI_SIGNED = new Set(['dc', 'recharge', 'movie']);
 
 /**
  * 拉取窗口：
- *  - 默认：各平台按windowHours 取近N 小时增量。
- *  - opts.tbWindow：tb 存量回填专用（2026-09-23 pay_price=0 修复），指定时只跑 tb。
- *  - opts.backfillSince：蚂蚁 4 类历史订单回填（2026-10-03）。测试apikey 累积订单
- *    57 万条（pforder 实测），一次性拉会打爆上游 → **必须按天分段**，逐日 upsert（幂等可重入）。
+ *  - 默认：起点=已同步水位−6h；无水位（首拉）=建站时间。
+ *  - opts.backfillSince：蚂蚁 4 类历史订单回填（2026-10-03）。账户历史单量大，
+ *    一次性拉会打爆上游 → **必须按天分段**，逐日 upsert（幂等可重入）。
  */
 export async function runOrdersync(
   siteCode = 'site-a',
-  opts?: { tbWindow?: { start: Date; end: Date }; backfillSince?: Date; backfillProviders?: string[] },
+  opts?: { backfillSince?: Date; backfillProviders?: string[] },
 ): Promise<SyncStats> {
   const cfg = await resolveHjkConfig(siteCode);
-  const { rows: siteRows } = await pool.query(`SELECT site_id FROM site WHERE code = $1 LIMIT 1`, [siteCode]);
+  const { rows: siteRows } = await pool.query(`SELECT site_id, created_at FROM site WHERE code = $1 LIMIT 1`, [siteCode]);
   if (!siteRows[0]) throw new Error(`站点不存在：${siteCode}`);
   const siteId = String(siteRows[0].site_id);
+  // ⛔ 同步起点下限 = 建站时间（D先生 2026-10-10 归口：建站前的订单必非本系统产生）
+  const siteCreatedAt = new Date(siteRows[0].created_at as string);
 
   const end = new Date();
   const stats: SyncStats = { site: siteCode, window: { start: '', end: '' }, platforms: {}, settled: 0, chargedBack: 0 };
   stats.window.end = end.toISOString();
-  resetPfSkipCount();
 
   for (const [provider, fetcher] of Object.entries(FETCHERS)) {
     const stat: PlatformStat = { fetched: 0, upserted: 0 };
@@ -1240,47 +1055,31 @@ export async function runOrdersync(
       ? opts.backfillProviders ?? MAYI_PROVIDERS
       : null;
 
-    if (opts?.tbWindow) {
-      if (provider !== 'tb') {
-        stat.skipped = 'BACKFILL_WINDOW';
-        stats.platforms[provider] = stat;
-        continue;
-      }
-      start = opts.tbWindow.start;
-      fetchEnd = new Date(opts.tbWindow.end);
-    } else if (backfillTargets && !backfillTargets.includes(provider)) {
+    if (backfillTargets && !backfillTargets.includes(provider)) {
       stat.skipped = 'BACKFILL_SCOPE';
       stats.platforms[provider] = stat;
       continue;
     } else {
-      // 固定窗口
-      start = new Date(end.getTime() - windowHours(provider) * 3_600_000);
-      // ⛔ 水位续拉（D先生 2026-10-04「饿了么订单为何也不同-sync」的结构性修复）：
+      // ⛔ 起点归口（D先生 2026-10-10）：水位续拉 > 建站时间首拉。
       //   上游按 updated_at 筛、库里按下单时间存，两者错位 12~31 天 →
-      //   固定窗口每轮都会漏掉「下单超窗口且状态未再变动」的单。
-      //   起点取 max(固定窗口, 已同步水位 - 6h 重叠)，水位单调递增故不会越拉越短。
-      //
-      //   ⚠️ 但水位只能用于**宽窗口平台**（pf/dc/movie/recharge）。
-      //      jd 硬限制「查询时间范围不超过 1 小时」（实测报 UPSTREAM_BUSINESS
-      //      「无效请求-查询时间范围超过1小时」），水位重叠加固定窗口会突破它 → 必须跳过。
-      if (!opts?.backfillSince && !opts?.tbWindow && WATERMARK_PROVIDERS.has(provider)) {
-        const wm = await syncWatermark(siteId, provider);
-        if (wm) {
-          const overlapped = new Date(wm.getTime() - 6 * 3_600_000);
-          if (overlapped.getTime() < start.getTime()) start = overlapped;
-        }
-      }
+      //   固定窗口必然漏「下单超窗口且状态未再变动」的单（饿了么单实锤）。
+      //   有水位：起点 = 水位 − 6h 重叠；无水位（首拉）：起点 = 建站时间
+      //   —— 建站前的订单必非本系统产生；之后的即使归因不上也照常入站。
+      const wm = WATERMARK_PROVIDERS.has(provider) ? await syncWatermark(siteId, provider) : null;
+      start = wm
+        ? new Date(wm.getTime() - 6 * 3_600_000)
+        : new Date(siteCreatedAt.getTime());
     }
-    // ⛔ 统一收口：任何路径的起点都不得早于 SYNC_SINCE（2026-09-20）
-    start = clampSince(start);
+    // ⛔ 统一收口：任何路径的起点都不得早于建站时间
+    start = clampSince(start, siteCreatedAt);
     if (start.getTime() >= fetchEnd.getTime()) {
-      // 窗口被夹空（当前时间早于 SYNC_SINCE，不可能有订单）
-      stat.skipped = 'BEFORE_SYNC_SINCE';
+      // 窗口被夹空（起点≥终点，不可能有订单）
+      stat.skipped = 'WINDOW_EMPTY';
       stats.platforms[provider] = stat;
       continue;
     }
 
-    if (provider === 'jd') stats.window.start = start.toISOString();
+    if (!stats.window.start) stats.window.start = start.toISOString();
     try {
       if (backfillTargets?.includes(provider) && opts?.backfillSince) {
         // 按天分段回填（幂等 upsert，重复跑安全）
@@ -1288,14 +1087,14 @@ export async function runOrdersync(
         //    并发只让等待重叠，上游限流器仍是串行队列，不加压上游。
         const dayMs = 24 * 3_600_000;
         const segs: Array<{ from: Date; to: Date }> = [];
-        for (let cur = clampSince(opts.backfillSince); cur < fetchEnd; ) {
+        for (let cur = clampSince(opts.backfillSince, siteCreatedAt); cur < fetchEnd; ) {
           const segEnd = new Date(Math.min(cur.getTime() + dayMs, fetchEnd.getTime()));
           segs.push({ from: new Date(cur.getTime()), to: segEnd });
           cur = segEnd;
         }
         for (let i = 0; i < segs.length; i += SEGMENT_CONCURRENCY) {
           const batch = segs.slice(i, i + SEGMENT_CONCURRENCY);
-          const results = await Promise.all(batch.map((s) => fetcher(cfg.apikey, s.from, s.to)));
+          const results = await Promise.all(batch.map((s) => fetcher(cfg.apikey, s.from, s.to, cfg.apiSecret)));
           for (const orders of results) {
             if (orders.length) {
               stat.fetched += orders.length;
@@ -1311,8 +1110,7 @@ export async function runOrdersync(
         //    ⚠️ 但30 天 = 30 段串行会跑爆网关/容器超时（实测 60s 挂 500）。
         //    修法：① 单轮最多跑 SEGMENT_BUDGET 天（其余交给下一次定时器，30min 一轮自然收敛）；
         //          ② 段间并发 4 路（上游限流器本身是串行队列，并发只是让等待重叠，不加压上游）。
-        const hours = windowHours(provider);
-        if (hours >= 720 && fetchEnd.getTime() - start.getTime() > 24 * 3_600_000) {
+        if (fetchEnd.getTime() - start.getTime() > 24 * 3_600_000) {
           const dayMs = 24 * 3_600_000;
           // 从最新一天往回填：最新段优先拿到，旧的留给下一轮（避免每轮都在扫最老的一段）
           const segs: Array<{ from: Date; to: Date }> = [];
@@ -1325,7 +1123,7 @@ export async function runOrdersync(
           let done = 0;
           for (let i = 0; i < segs.length; i += SEGMENT_CONCURRENCY) {
             const batch = segs.slice(i, i + SEGMENT_CONCURRENCY);
-            const results = await Promise.all(batch.map((s) => fetcher(cfg.apikey, s.from, s.to)));
+            const results = await Promise.all(batch.map((s) => fetcher(cfg.apikey, s.from, s.to, cfg.apiSecret)));
             for (const orders of results) {
               if (orders.length) {
                 stat.fetched += orders.length;
@@ -1336,7 +1134,7 @@ export async function runOrdersync(
           }
           stat.segments = done;
         } else {
-          const orders = await fetcher(cfg.apikey, start, fetchEnd);
+          const orders = await fetcher(cfg.apikey, start, fetchEnd, cfg.apiSecret);
           stat.fetched = orders.length;
           stat.upserted = await upsertOrders(siteId, orders);
         }
@@ -1346,9 +1144,6 @@ export async function runOrdersync(
       const he = e as { message?: string; code?: string };
       stat.error = [he.message, he.code && he.code !== he.message ? he.code : ''].filter(Boolean).join(' | ');
     }
-    // pf_type 让位 v1 的丢弃数（旁路计数器回传）
-    const pfSkipped = takePfSkipCount();
-    if (pfSkipped > 0) stat.skippedByPfType = pfSkipped;
     stats.platforms[provider] = stat;
   }
 

@@ -18,8 +18,8 @@ export const meRouter = Router();
 // token 解析（clogin JWT → req.user）；不挂 optionalUser 则 requireUser 永远 401
 meRouter.use(optionalUser);
 
-/** 提现规则常量（mini-24 画布稿定稿文案） */
-const MIN_WITHDRAW = 10;
+/** 提现规则（2026-10-10 微信审核钦定口径：**无提现门槛 + 即时到账**，D先生 指令）
+ *  ⛔ MIN_WITHDRAW 门槛已废除（两次拒审主因）；单笔上限保留（风控限额，非门槛）。 */
 const MAX_WITHDRAW_PER = 5000;
 const CHANNELS = ['wx_wallet'] as const;
 
@@ -75,7 +75,7 @@ meRouter.get('/commission/summary', requireUser, async (req: Request, res: Respo
         level: lv[0]
           ? { level_id: Number(lv[0].level_id), name: lv[0].name, self_rate: Number(lv[0].self_rate), direct_rate: Number(lv[0].direct_rate) }
           : null,
-        min_withdraw: MIN_WITHDRAW,
+        min_withdraw: 0, // 2026-10-10 无门槛口径（字段保留兼容旧客户端）
         max_withdraw_per: MAX_WITHDRAW_PER,
       },
     });
@@ -177,26 +177,29 @@ meRouter.post('/withdraw', requireUser, async (req: Request, res: Response, next
     const amount = Math.round(Number(req.body?.amount) * 100) / 100;
     const channel = String(req.body?.channel ?? 'wx_wallet');
     if (!Number.isFinite(amount) || amount <= 0) throw new HttpError(400, '提现金额非法', 'BAD_AMOUNT');
-    if (amount < MIN_WITHDRAW) throw new HttpError(400, `最低提现 ¥${MIN_WITHDRAW}`, 'BELOW_MIN');
+    // ⛔ 最低提现门槛已废除（2026-10-10 微信审核钦定：无门槛 + 即时到账）；仅保留单笔上限（风控限额）
     if (amount > MAX_WITHDRAW_PER) throw new HttpError(400, `单笔限额 ¥${MAX_WITHDRAW_PER}`, 'OVER_MAX');
     if (!(CHANNELS as readonly string[]).includes(channel)) throw new HttpError(400, '提现方式暂仅支持微信零钱', 'BAD_CHANNEL');
 
     // 原子申请：余额足额才扣减并落单（42P18 铁律：参数全引用）
+    // ⛔ 即时到账口径（D先生 2026-10-10）：申请即置 paid（无人工审核环节）。
+    //    ⚠️ 真实微信商家转账通道接通前，paid = 记账式打款；通道上线后此处切换为
+    //    「落单 pending → 调转账 → 微信回调置 paid」，届时需对已 paid 存量补打款对账。
     const { rows } = await pool.query(
       `WITH upd AS (
          UPDATE promoter SET commission_balance = commission_balance - $2::numeric
           WHERE user_id = $1::bigint AND commission_balance >= $2::numeric
          RETURNING 1
        ), ins AS (
-         INSERT INTO withdraw (user_id, amount, channel, status)
-         SELECT $1::bigint, $2::numeric, $3::text, 'pending' WHERE EXISTS (SELECT 1 FROM upd)
+         INSERT INTO withdraw (user_id, amount, channel, status, audit_at, paid_at)
+         SELECT $1::bigint, $2::numeric, $3::text, 'paid', now(), now() WHERE EXISTS (SELECT 1 FROM upd)
          RETURNING id
        )
        SELECT id FROM ins`,
       [userId, amount, channel]
     );
     if (!rows[0]) throw new HttpError(400, '可提现余额不足', 'INSUFFICIENT_BALANCE');
-    res.json({ ok: true, data: { id: Number(rows[0].id), status: 'pending', amount } });
+    res.json({ ok: true, data: { id: Number(rows[0].id), status: 'paid', amount } });
   } catch (e) { next(e); }
 });
 

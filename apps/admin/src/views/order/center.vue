@@ -383,13 +383,14 @@ const tabDefs = [
   { key: 'all', label: '全部' },
   { key: 'self', label: '到店团购订单' },
   { key: 'cps', label: 'CPS 订单' },
+  { key: 'local', label: '本地生活(点餐·影票)' },
   { key: 'ingot', label: '积分兑换(蚂蚁星球)' },
   { key: 'after', label: '售后处理' },
 ];
 
 /** 页签管大类、下拉管细类（admin-32B）。映射的是"这一页签天然排除哪些类型组"，
  *  用于前端隐藏而非后端过滤 —— 后端仍以 tab 参数独立生效，两处口径必须一致。 */
-const TAB_EXCLUDE_GROUP = { cps: ['self'], ingot: ['self'], self: [], after: [], all: [] };
+const TAB_EXCLUDE_GROUP = { cps: ['self'], local: ['self'], ingot: ['self'], self: [], after: [], all: [] };
 
 const tab = ref('all');
 const tabs = ref({});
@@ -611,7 +612,7 @@ function toggleType(value) {
   const i = filterTypes.value.indexOf(value);
   if (i >= 0) filterTypes.value.splice(i, 1);
   else filterTypes.value.push(value);
-  // 双向联动：勾到「到店团购」→ 页签跳「团购」；页签在 CPS/积分兑换时自营组已隐藏，不会有歧义
+  // 双向联动：勾到「到店团购」→ 页签跳「团购」；页签在 CPS/本地生活/积分兑换时自营组已隐藏，不会有歧义
   if (value === 'self' && !filterTypes.value.includes('self') && tab.value !== 'self') tab.value = 'self';
   reload();
 }
@@ -689,8 +690,8 @@ function resetFilter() {
 
 function switchTab(key) {
   tab.value = key;
-  // 页签切到 CPS/积分兑换时，若已勾了自营类型会造成 0 结果矛盾 → 自动摘掉
-  if ((key === 'cps' || key === 'ingot') && filterTypes.value.includes('self')) {
+  // 页签切到 CPS/本地生活/积分兑换时，若已勾了自营类型会造成 0 结果矛盾 → 自动摘掉
+  if (['cps', 'local', 'ingot'].includes(key) && filterTypes.value.includes('self')) {
     filterTypes.value = filterTypes.value.filter((v) => v !== 'self');
   }
   reload();

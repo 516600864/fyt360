@@ -1,5 +1,7 @@
-// 提现审核（admin-34）：佣金现金提现审核流 pending → paid / rejected
-// 真实打款走微信企业付款到零钱里程碑；当前打款动作=审核通过并标记打款（打款通道接通后切换）
+// 提现审核（admin-34）：佣金现金提现 pending → paid / rejected
+// ⚠️ 2026-10-10 起 C 端申请**即时到账**（me.ts 直接落 paid，无审核环节，微信审核钦定口径）；
+//    本路由保留用于：存量 pending 单审核、异常单驳回退余额、打款凭证管理。
+//    真实打款走微信企业付款到零钱里程碑；当前打款动作=审核通过并标记打款（打款通道接通后切换）
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { pool } from '../db/client.js';
 import { HttpError } from '../middleware/errors.js';
@@ -26,10 +28,10 @@ async function scope(admin: AdminJwtPayload, code: string): Promise<string[]> {
   return admin.siteIds;
 }
 
-/** 提现门槛（platform_config.withdraw_rule，决策#6） */
+/** 提现规则（platform_config.withdraw_rule，决策#6；2026-10-10 无门槛口径 min_amount=0） */
 export async function withdrawRule(): Promise<{ min_amount: number; fee_rate: number; per_txn_limit: number }> {
   const { rows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'withdraw_rule' LIMIT 1`);
-  return rows[0]?.value ?? { min_amount: 10, fee_rate: 0, per_txn_limit: 5000 };
+  return rows[0]?.value ?? { min_amount: 0, fee_rate: 0, per_txn_limit: 5000 };
 }
 
 /** GET /api/admin/withdraw/summary → 顶部三卡 */

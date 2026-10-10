@@ -70,6 +70,11 @@
   color: #fff;
   line-height: 40rpx;
 }
+/* 表情图标（后台未传图片时的点选表情）：与图片 icon 同视觉重量 */
+.tab-dot.emoji {
+  font-size: 34rpx;
+  font-weight: 400;
+}
 .tab-name {
   font-size: 21rpx;
   color: var(--fyt-text-2, #5f594e);
