@@ -48,17 +48,6 @@
       </view>
     </view>
 
-    <!-- 热搜榜（运营位：静态词表，后续可接后台配置） -->
-    <view class="sec">
-      <text class="sec-title">热搜榜</text>
-      <view class="hot-card">
-        <view v-for="(w, i) in hotWords" :key="w" class="hot-row" @tap="quickSearch(w)">
-          <text class="hot-no" :class="'n' + (i + 1)">{{ i + 1 }}</text>
-          <text class="hot-word">{{ w }}</text>
-          <text v-if="i === 0" class="hot-fire">热</text>
-        </view>
-      </view>
-    </view>
     <!-- 找券结果（同页直出：当前平台 goodslist 实时透传） -->
     <view v-if="searched" class="sec">
       <view class="sec-head">
@@ -86,10 +75,10 @@
 /**
  * 搜索找券·入口页（画布 mini-07 对齐）。
  * 业务口径（D先生 定稿 2026-09-29）：「找券」= 当前 tab 平台 goodslist 直查，粘贴原文整段透传作 keyword，结果同页直出；
- * 切平台 tab 自动重查。历史搜索存本地 storage；热搜榜为静态运营词表（后台配置能力后续接）。
+ * 切平台 tab 自动重查。历史搜索存本地 storage；热搜榜已移除（D先生 2026-10-10）。
  */
-import { request } from '../../utils/request';
-import { onGoodsTap } from '../../core/link';
+import { request } from '@/utils/request';
+import { onGoodsTap } from '@/core/link';
 
 const HIST_KEY = 'fyt_search_hist';
 const HIST_MAX = 10;
@@ -106,7 +95,6 @@ export default {
         { key: 'vip', name: '唯品会' },
         { key: 'tb', name: '淘宝' },
       ],
-      hotWords: ['每日坚果', '空气炸锅', '保温杯', '零食大礼包', '投影仪'],
       searching: false,
       searched: false,
       lastKw: '',
@@ -150,7 +138,7 @@ export default {
       this.saveHistory(kw.slice(0, 30));
       this.search(kw);
     },
-    /** 历史/热搜词快捷搜（历史存的是整段粘贴原文，直接透传） */
+    /** 历史词快捷搜（历史存的是整段粘贴原文，直接透传） */
     quickSearch(w) {
       const kw = String(w ?? '').trim();
       if (!kw) return;
@@ -236,20 +224,6 @@ export default {
   padding: 12rpx 30rpx; font-size: 24rpx; color: #6b5a4e; font-weight: 600;
 }
 
-.hot-card { background: #fff; border: 3rpx solid var(--fyt-primary, #e8336d); border-radius: 24rpx; padding: 12rpx 24rpx; }
-.hot-row { display: flex; align-items: center; gap: 20rpx; padding: 20rpx 0; }
-.hot-no {
-  width: 40rpx; height: 40rpx; border-radius: 10rpx; background: #f3e3c9; color: #a3690f;
-  font-size: 22rpx; font-weight: 900; display: flex; align-items: center; justify-content: center;
-}
-.hot-no.n1 { background: var(--fyt-primary, #e8336d); color: #fff; }
-.hot-no.n2 { background: var(--fyt-secondary, #ffaa1d); color: #fff; }
-.hot-no.n3 { background: #ffd9e6; color: var(--fyt-primary-dark, #a31245); }
-.hot-word { flex: 1; font-size: 26rpx; color: #333; font-weight: 600; }
-.hot-fire {
-  font-size: 20rpx; font-weight: 800; color: #fff; background: #e23a3a;
-  border-radius: 8rpx; padding: 2rpx 12rpx;
-}
 
 /* 找券结果（同页直出） */
 .empty-card { background: #fff; border: 2rpx dashed #f0d9c5; border-radius: 20rpx; padding: 48rpx 0; text-align: center; }
