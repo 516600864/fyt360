@@ -137,11 +137,11 @@ for (const rng of ['today', '7d']) {
   const pt = d.range.prev_to;
   const ind = await db(
     `SELECT
-       COALESCE(SUM(commission) FILTER (WHERE provider <> 'self' AND COALESCE(refund_status,'none') <> 'refunded'), 0)::float AS cps,
+       COALESCE(SUM(commission) FILTER (WHERE provider <> 'self' AND COALESCE(refund_status,'none') <> 'refunded' AND platform_status IN ('paid','settled')), 0)::float AS cps,
        COALESCE(SUM(commission) FILTER (WHERE provider <> 'self'), 0)::float AS cps_with_refund,
-       COALESCE(SUM(pay_price)   FILTER (WHERE provider  = 'self' AND COALESCE(refund_status,'none') <> 'refunded'), 0)::float AS self_in,
-       COALESCE(SUM(cost_amount) FILTER (WHERE provider = 'self' AND COALESCE(refund_status,'none') <> 'refunded'), 0)::float AS self_cost,
-       COALESCE(SUM(commission)  FILTER (WHERE provider  = 'self' AND COALESCE(refund_status,'none') <> 'refunded'), 0)::float AS self_comm,
+       COALESCE(SUM(pay_price)   FILTER (WHERE provider  = 'self' AND COALESCE(refund_status,'none') <> 'refunded' AND platform_status IN ('paid','settled')), 0)::float AS self_in,
+       COALESCE(SUM(cost_amount) FILTER (WHERE provider = 'self' AND COALESCE(refund_status,'none') <> 'refunded' AND platform_status IN ('paid','settled')), 0)::float AS self_cost,
+       COALESCE(SUM(commission)  FILTER (WHERE provider  = 'self' AND COALESCE(refund_status,'none') <> 'refunded' AND platform_status IN ('paid','settled')), 0)::float AS self_comm,
        COALESCE(SUM(pay_price)   FILTER (WHERE refund_status = 'refunded' AND provider = 'self'), 0)::float AS self_refund,
        COALESCE(SUM(pay_price)   FILTER (WHERE refund_status = 'refunded'), 0)::float AS all_refund,
        COUNT(*) FILTER (WHERE refund_status = 'refunded' AND provider <> 'self')::int AS cps_refund_cnt,
@@ -350,8 +350,8 @@ console.log('\n【9】4 KPI：已结算按 rebate_at（佣金口径）');
   const d = body.data;
   ok(d.kpi.length === 4, `4 张 KPI（${d.kpi.map((k) => k.label).join(' / ')}）`);
   const ind = await db(
-    `SELECT COUNT(*) FILTER (WHERE rebate_at IS NOT NULL AND COALESCE(refund_status,'none') <> 'refunded')::int AS settled,
-            COUNT(*) FILTER (WHERE rebate_at IS NULL AND COALESCE(refund_status,'none') <> 'refunded')::int AS unsettled
+    `SELECT COUNT(*) FILTER (WHERE rebate_at IS NOT NULL AND COALESCE(refund_status,'none') <> 'refunded' AND platform_status IN ('paid','settled'))::int AS settled,
+            COUNT(*) FILTER (WHERE rebate_at IS NULL AND COALESCE(refund_status,'none') <> 'refunded' AND platform_status IN ('paid','settled'))::int AS unsettled
      FROM "order" WHERE site_id IN (${PH}) AND paid_at >= $${base.length + 1} AND paid_at < $${base.length + 2}`,
     [...base, d.range.from, d.range.to],
   );

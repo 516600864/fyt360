@@ -75,9 +75,23 @@ distributionRouter.get('/tree', requireAdmin, async (req: Request, res: Response
     const uid = Number(req.query.user_id);
     if (!Number.isFinite(uid)) throw new HttpError(400, 'user_id 非法', 'BAD_USER');
     const { rows: rootRows } = await pool.query(
-      `SELECT user_id, nickname, created_at FROM "user"
+      `SELECT user_id, nickname, parent_id::int, grand_id::int, great_id::int, created_at FROM "user"
         WHERE user_id = $1 AND site_id IN (${SITE_PH(ids, 2)})`, [uid, ...ids]);
     if (!rootRows[0]) throw new HttpError(404, '用户不存在或无站点权限', 'USER_NOT_FOUND');
+
+    // 上级链（2026-10-11 D先生：关系树只显示下级，选中叶子节点一片空白很懵）：
+    // 把选中用户的 父→祖→曾祖 昵称一并返回，前端显示在明细头部。
+    const root = rootRows[0];
+    const upIds = [root.parent_id, root.grand_id, root.great_id].filter(Boolean);
+    let upchain: Array<{ user_id: number; nickname: string }> = [];
+    if (upIds.length) {
+      const { rows: upRows } = await pool.query(
+        `SELECT user_id, nickname FROM "user" WHERE user_id = ANY($1::int[])`,
+        [upIds],
+      );
+      const byId = new Map(upRows.map((r) => [Number(r.user_id), r.nickname]));
+      upchain = upIds.map((id) => ({ user_id: id, nickname: byId.get(id) ?? `用户#${id}` }));
+    }
 
     const { rows } = await pool.query(
       `SELECT u.user_id, u.nickname, u.parent_id, u.grand_id, u.created_at,
@@ -102,6 +116,6 @@ distributionRouter.get('/tree', requireAdmin, async (req: Request, res: Response
       team: r.team,
       commission: r.commission,
     }));
-    res.json({ ok: true, data: { root: rootRows[0], items } });
+    res.json({ ok: true, data: { root: rootRows[0], items, upchain } });
   } catch (e) { next(e); }
 });

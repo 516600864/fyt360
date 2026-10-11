@@ -52,7 +52,8 @@ const USER_SELECT = `
   (SELECT COALESCE(SUM(cf.amount), 0)::float FROM commission_flow cf
     WHERE cf.user_id = u.user_id AND cf.status <> 'invalid') AS commission_total,
   EXISTS (SELECT 1 FROM verify_agent va WHERE va.user_id = u.user_id AND va.status = 'active') AS is_verifier,
-  (SELECT COUNT(*)::int FROM "user" c WHERE c.parent_id = u.user_id) AS team_size
+  (SELECT COUNT(*)::int FROM "user" c WHERE c.parent_id = u.user_id) AS team_size,
+  pu.user_id AS parent_id, pu.nickname AS parent_nickname
 `;
 
 /** GET /api/admin/members?q=&status=&level=&verifier=&site=&page=&size= */
@@ -93,6 +94,7 @@ membersRouter.get('/', requireAdmin, async (req: Request, res: Response, next: N
          LEFT JOIN member_level ml ON ml.level_id = m.level_id
          LEFT JOIN ingot_account ia ON ia.user_id = u.user_id
          LEFT JOIN promoter p ON p.user_id = u.user_id
+         LEFT JOIN "user" pu ON pu.user_id = u.parent_id
         WHERE u.site_id IN (${ph})${extra}
         ORDER BY u.user_id DESC
         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -129,6 +131,8 @@ membersRouter.get('/', requireAdmin, async (req: Request, res: Response, next: N
           commission_balance: r.commission_balance,
           commission_total: r.commission_total,
           is_verifier: !!r.is_verifier,
+          parent_id: r.parent_id ? Number(r.parent_id) : null,
+          parent_nickname: r.parent_nickname ?? null,
         })),
         total: cnt[0]?.total ?? 0,
         verifiers: cnt[0]?.verifiers ?? 0,
@@ -154,6 +158,7 @@ async function loadUser(sites: string[], idRaw: string) {
        LEFT JOIN member_level ml ON ml.level_id = m.level_id
        LEFT JOIN ingot_account ia ON ia.user_id = u.user_id
        LEFT JOIN promoter p ON p.user_id = u.user_id
+       LEFT JOIN "user" pu ON pu.user_id = u.parent_id
       WHERE u.site_id IN (${ph}) AND u.user_id = $${params.length}::bigint LIMIT 1`,
     params
   );

@@ -511,19 +511,18 @@ tradeRouter.post('/notify/wxpay', async (req: Request, res: Response, next: Next
   try {
     const resource = req.body?.resource;
     if (!resource?.ciphertext) throw new HttpError(400, '回调缺少 resource', 'BAD_CALLBACK');
-    // 单号反查站点 → 对应解密 key（回调不带 site 上下文）
-    const probe = await pool.query(
-      `SELECT p.site_id::text AS site_id, p.mch_key FROM site_payment p LIMIT 50`,
-    );
+    // 解密 key 候选：**DISTINCT 去重**（2026-10-11 实锤：niwo 支付凭据是 site-a 复制的，同 mch+key；
+    // 旧逻辑逐行遍历先命中谁就当谁的 site → site-a 行在前时 site_id 查不到 niwo 单 → 静默 no-op
+    // 还回 OK，微信不再重试，单永远停在 created）。
+    const probe = await pool.query(`SELECT DISTINCT p.mch_key FROM site_payment p LIMIT 50`);
     let order: { out_trade_no: string; transaction_id: string; trade_state: string } | null = null;
-    let siteId = '';
     for (const row of probe.rows) {
       try {
         const j = decryptCallbackResource(
           { mchId: '', apiV3Key: row.mch_key, serialNo: '', privateKeyPem: '', commissionRate: 0, appid: '' },
           resource,
         );
-        if (j.out_trade_no) { order = j; siteId = row.site_id; break; }
+        if (j.out_trade_no) { order = j; break; }
       } catch { /* key 不匹配，试下一个 */ }
     }
     if (!order) throw new HttpError(400, '回调解密失败', 'DECRYPT_FAIL');
@@ -531,9 +530,10 @@ tradeRouter.post('/notify/wxpay', async (req: Request, res: Response, next: Next
       res.json({ code: 'SUCCESS', message: '非成功态忽略' });
       return;
     }
+    // ⛔ 按单号全库定位（order_sn 唯一），**不过滤 site_id** —— 站点归属以单为准，杜绝双站同 key 歧义
     const { rows: o } = await pool.query(
-      `SELECT id FROM "order" WHERE order_sn = $1::varchar AND site_id = $2::uuid AND provider = 'self' LIMIT 1`,
-      [order.out_trade_no, siteId],
+      `SELECT id FROM "order" WHERE order_sn = $1::varchar AND provider = 'self' LIMIT 1`,
+      [order.out_trade_no],
     );
     if (o[0]) await settleSelfOrder(Number(o[0].id), order.transaction_id);
     res.json({ code: 'SUCCESS', message: 'OK' });

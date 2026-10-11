@@ -57,6 +57,12 @@
             <span class="lv" :class="`lv-${row.level}`">{{ row.level }} {{ row.level_name }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="上级" min-width="130">
+          <template #default="{ row }">
+            <span v-if="row.parent_id" class="up-cell">{{ row.parent_nickname ?? '用户' }}<span class="up-uid">#{{ row.parent_id }}</span></span>
+            <span v-else class="up-none">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="站点" width="120">
           <template #default="{ row }">{{ row.site_name }}</template>
         </el-table-column>
@@ -509,6 +515,9 @@ onMounted(load);
 .uid { font-size: 11px; color: #b9b0a0; }
 
 .lv { font-size: 11px; font-weight: 800; border-radius: 999px; padding: 2px 9px; }
+.up-cell { font-size: 12px; font-weight: 600; color: #5a5248; }
+.up-uid { margin-left: 3px; font-size: 11px; color: #a89f92; font-weight: 500; }
+.up-none { color: #c9c2b6; }
 .lv-L1 { background: #f2f0eb; color: #8c8577; }
 .lv-L2 { background: #fff0f5; color: #e8336d; }
 .lv-L3 { background: linear-gradient(120deg, #ffaa1d, #e8336d); color: #fff; }

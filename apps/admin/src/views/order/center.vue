@@ -261,8 +261,7 @@
         </el-table-column>
         <el-table-column label="佣金" width="90">
           <template #default="{ row }">
-            <span v-if="!row.commission_visible" class="muted">—</span>
-            <span v-else-if="row.refund_status === 'refunded'" class="frozen">已冻结</span>
+            <span v-if="row.refund_status === 'refunded'" class="frozen">已冻结</span>
             <span v-else-if="row.commission > 0" class="commission">¥{{ row.commission }}</span>
             <span v-else class="pending">待结算</span>
           </template>
@@ -308,8 +307,7 @@
           <span v-else class="muted">—</span>
         </el-descriptions-item>
         <el-descriptions-item label="佣金">
-          <span v-if="!detailRow.commission_visible" class="muted">—（积分兑换单不参与佣金）</span>
-          <span v-else-if="detailRow.commission > 0">¥{{ detailRow.commission }}</span>
+          <span v-if="detailRow.commission > 0">¥{{ detailRow.commission }}</span>
           <span v-else>待结算</span>
         </el-descriptions-item>
         <el-descriptions-item label="下单时间">{{ fmtTime(detailRow.paid_at || detailRow.created_at) }}</el-descriptions-item>

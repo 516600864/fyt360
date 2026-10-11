@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import type { NextFunction, Request, Response } from 'express';
 import { config } from '../config.js';
 import { HttpError } from './errors.js';
+import { pool } from '../db/client.js';
 
 export interface AdminJwtPayload {
   adminId: string;
@@ -35,6 +36,22 @@ export function assertSiteAccess(admin: AdminJwtPayload, siteId: string): void {
   if (admin.role === 'platform_admin') return;
   if (!admin.siteIds.includes(siteId)) {
     throw new HttpError(403, '无该站点访问权限', 'SITE_FORBIDDEN');
+  }
+}
+
+/**
+ * 站点级配置写权限（2026-10-11 结算配置站点级化，docs/结算配置站点级化设计评审.md）：
+ * 站点负责人（is_owner）可写本站；platform_admin 可代写任意站。对齐 admin-52 口径。
+ */
+export async function requireOwnerOrPlatform(admin: AdminJwtPayload, siteId: string): Promise<void> {
+  if (admin.role === 'platform_admin') return;
+  assertSiteAccess(admin, siteId);
+  const { rows: own } = await pool.query(
+    `SELECT 1 FROM admin_user_site WHERE admin_id = $1::bigint AND site_id = $2::uuid AND is_owner LIMIT 1`,
+    [admin.adminId, siteId],
+  );
+  if (!own[0]) {
+    throw new HttpError(403, '结算规则由站点负责人配置，请联系站点负责人', 'NOT_SITE_OWNER');
   }
 }
 

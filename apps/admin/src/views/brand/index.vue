@@ -81,6 +81,39 @@
 
     <!-- ===== 品牌三轨 ===== -->
     <template v-else>
+      <!-- 上游对账（brand-sync job 每日 07:30 自动对账，此处人看 + 人补） -->
+      <div class="card sync-card">
+        <div class="sync-cap">
+          <span class="card-cap" style="margin: 0">上游对账</span>
+          <span class="sync-meta" v-if="syncReport">
+            上次对账 {{ fmtTime(syncReport.ran_at) }} · 上游 {{ syncReport.upstream_total }} 活动 · 对账 {{ syncReport.checked_rows }} 行 · 失效禁用 {{ (syncReport.disabled || []).length }} · 待补映射 {{ syncReport.unmapped_count }}
+          </span>
+          <span class="sync-meta" v-else>暂无对账数据（brand-sync 定时任务尚未运行）</span>
+          <button class="ghost-btn" v-if="syncReport" @click="syncOpen = !syncOpen">{{ syncOpen ? '收起' : '展开' }}</button>
+        </div>
+        <div class="sync-body" v-if="syncOpen && syncReport">
+          <div class="sync-sec" v-if="(syncReport.disabled || []).length">
+            <div class="sync-sec-title warn">失效禁用（actid 已从上游消失，自动 enabled=false）</div>
+            <div class="sync-row" v-for="d in syncReport.disabled" :key="d.brand_code">
+              <span class="s-name">{{ d.name }}</span>
+              <span class="s-meta">{{ d.category }}/{{ d.brand_code }} · actid {{ d.actid }}</span>
+            </div>
+          </div>
+          <div class="sync-sec">
+            <div class="sync-sec-title">待补映射（上游有活动、我们还没配品牌行）——选家族后一键补配</div>
+            <div class="sync-row" v-for="u in syncReport.unmapped_sample || []" :key="u.actid">
+              <img v-if="u.logo" class="s-logo" :src="u.logo" alt="" />
+              <span class="s-name">{{ u.name }}</span>
+              <span class="s-meta">actid {{ u.actid }}</span>
+              <select class="s-cat" v-model="adoptCat[u.actid]">
+                <option v-for="c in cidFamilies[u.cid] || []" :key="c" :value="c">{{ categoryName(c) }}</option>
+              </select>
+              <button class="ghost-btn" @click="adopt(u)">补配</button>
+            </div>
+            <div class="muted" style="font-size: 12px; padding: 6px 2px">补配后 brand_code = act_&lt;actid&gt;，对账任务自动接管其后续增删。</div>
+          </div>
+        </div>
+      </div>
       <div class="brand-grid">
         <div class="card brand-list">
           <div class="card-cap">品牌列表（{{ filteredBrands.length }}<template v-if="searchKey">/{{ brands.length }}</template>）</div>
@@ -376,7 +409,40 @@ async function saveBrand() {
 }
 function onAddBrand() { ElMessage.info('新增品牌随供给侧扩容里程碑开放'); }
 
-watch(tab, (t) => { if (t === 'brands' && !brands.value.length) loadBrands(); }, { immediate: true });
+watch(tab, (t) => {
+  if (t === 'brands') {
+    if (!brands.value.length) loadBrands();
+    loadSyncReport();
+  }
+}, { immediate: true });
+
+/* ---- 上游对账（brand-sync job 报告 + 一键补配） ---- */
+const syncReport = ref(null);
+const syncOpen = ref(false);
+const adoptCat = reactive({});
+/** act_cid → 可归入的品牌家族（淘宝活动归电商商城家族） */
+const cidFamilies = { 2: ['taxi'], 8: ['meituan', 'eleme'], 5: ['jd', 'tb', 'pdd', 'vip'], 6: ['hotel'] };
+const categoryName = (code) => brands.value.find((b) => b.category === code)?.category_name || code;
+const fmtTime = (iso) => { try { return new Date(iso).toLocaleString('zh-CN', { hour12: false }); } catch { return iso; } };
+async function loadSyncReport() {
+  try {
+    const d = await api('/admin/brands/sync-report');
+    syncReport.value = d;
+    // 每个待补活动预选第一个候选家族
+    for (const u of d?.unmapped_sample || []) if (!adoptCat[u.actid]) adoptCat[u.actid] = (cidFamilies[u.cid] || [])[0] || '';
+  } catch (e) { ElMessage.error(e.message); }
+}
+async function adopt(u) {
+  const category = adoptCat[u.actid];
+  if (!category) { ElMessage.warning('请选择品牌家族'); return; }
+  try {
+    await api('/admin/brands/adopt', { method: 'POST', body: JSON.stringify({ actid: u.actid, cid: u.cid, name: u.name, logo: u.logo, category }) });
+    ElMessage.success(`已补配：${u.name} → ${categoryName(category)}`);
+    syncReport.value.unmapped_sample = (syncReport.value.unmapped_sample || []).filter((x) => x.actid !== u.actid);
+    syncReport.value.unmapped_count = Math.max(0, (syncReport.value.unmapped_count || 1) - 1);
+    await loadBrands();
+  } catch (e) { ElMessage.error(e.message); }
+}
 watch(goodsTab, loadGoods);
 onMounted(loadGoods);
 </script>
@@ -474,6 +540,20 @@ onMounted(loadGoods);
 .dlg-footer .primary-btn { margin-left: 0; }
 
 .brand-grid { display: grid; grid-template-columns: 320px 1fr; gap: 14px; align-items: start; }
+/* ---- 上游对账卡片 ---- */
+.sync-card { padding: 10px 14px; }
+.sync-cap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sync-meta { font-size: 12px; color: var(--el-text-color-secondary); flex: 1; }
+.ghost-btn { border: 1px solid var(--el-border-color); background: transparent; border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.ghost-btn:hover { border-color: var(--el-color-primary); color: var(--el-color-primary); }
+.sync-body { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.sync-sec-title { font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+.sync-sec-title.warn { color: var(--el-color-danger); }
+.sync-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-top: 1px dashed var(--el-border-color-lighter); }
+.s-logo { width: 22px; height: 22px; border-radius: 5px; object-fit: cover; }
+.s-name { font-size: 13px; flex-shrink: 0; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s-meta { font-size: 12px; color: var(--el-text-color-secondary); flex: 1; }
+.s-cat { border: 1px solid var(--el-border-color); border-radius: 6px; padding: 2px 6px; font-size: 12px; background: transparent; }
 .brand-list { display: flex; flex-direction: column; max-height: calc(100vh - 190px); padding-bottom: 8px; }
 .brand-search { padding: 0 4px 8px; }
 .brand-search input {

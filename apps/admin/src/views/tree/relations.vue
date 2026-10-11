@@ -23,6 +23,8 @@
     <div class="card">
       <div class="drill-head">
         <span class="drill-title">关系明细{{ root ? ` · ${root.nickname ?? ('用户' + root.user_id)}（L3 合伙人）` : '' }}</span>
+        <!-- 上级链（2026-10-11 D先生）：叶子节点也要能看到自己挂在谁下面，不然一片空白很懵 -->
+        <span v-if="upchain.length" class="upchain">上级链：{{ upchain.map((u) => `${mask(u.nickname)}(#${u.user_id})`).join(' → ') }}</span>
         <el-select v-model="rootId" filterable placeholder="选择根用户（按团队规模排序）" style="width: 300px" size="small">
           <el-option v-for="r in roots" :key="r.user_id" :value="r.user_id" :label="`${r.nickname ?? '用户' + r.user_id}（团队 ${r.team} 人）`" />
         </el-select>
@@ -78,6 +80,7 @@ const roots = ref([]);
 const rootId = ref(null);
 const root = ref(null);
 const treeItems = ref([]);
+const upchain = ref([]);
 const treeLoading = ref(false);
 
 const hopLabel = (h) => ({ 1: 'Lv1 直推', 2: 'Lv2 间推', 3: 'Lv3 隔级' }[h] ?? `Lv${h}`);
@@ -95,12 +98,13 @@ async function loadRoots() {
   } catch (e) { ElMessage.error(e.message); }
 }
 async function loadTree() {
-  if (!rootId.value) { root.value = null; treeItems.value = []; return; }
+  if (!rootId.value) { root.value = null; treeItems.value = []; upchain.value = []; return; }
   treeLoading.value = true;
   try {
     const d = await api(`/admin/distribution/tree?user_id=${rootId.value}`);
     root.value = d.root;
     treeItems.value = d.items;
+    upchain.value = d.upchain ?? [];
   } catch (e) { ElMessage.error(e.message); } finally { treeLoading.value = false; }
 }
 function onExport() { ElMessage.info('全量导出随分销运营里程碑开放'); }
@@ -133,7 +137,8 @@ onMounted(() => { loadSummary(); loadRoots(); });
 .notice-pink { background: #fce8f0; color: #a31245; }
 
 .card { background: #fff; border: 1.5px solid #f0dfc8; border-radius: 16px; padding: 8px 14px 14px; }
-.drill-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 4px 12px; }
+.drill-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 4px 12px; gap: 12px; }
+.upchain { font-size: 12px; font-weight: 700; color: #8c6f3f; background: #fdf6e9; border: 1px dashed #e3c88f; border-radius: 999px; padding: 3px 10px; margin-left: auto; margin-right: 10px; white-space: nowrap; }
 .drill-title { font-weight: 900; color: #3d2530; }
 .hop { font-weight: 900; font-size: 13px; }
 .hop-1 { color: #e8336d; }

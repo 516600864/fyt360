@@ -8,6 +8,7 @@ import { pool } from '../db/client.js';
 import { runOrdersync } from '../jobs/ordersync.js';
 import { runCheckinRemind } from '../jobs/checkin-remind.js';
 import { runOrdersweep, PAY_WINDOW_MIN } from '../jobs/ordersweep.js';
+import { runBrandSync } from '../jobs/brand-sync.js';
 import { requireAdmin, assertSiteAccess } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errors.js';
 
@@ -125,6 +126,34 @@ jobsRouter.post('/ordersweep', requireAdmin, async (req: Request, res: Response,
     const windowMin = Number.isFinite(raw) && raw > 0 ? Math.min(Math.round(raw), 60 * 24 * 30) : PAY_WINDOW_MIN;
     const stats = await runOrdersweep(windowMin);
     res.json({ ok: true, data: { window_min: windowMin, ...stats } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── 品牌三轨对账（2026-10-10，docs/品牌三轨对账同步设计评审.md）────────────────
+// 域1：actlist 失效 actid 自动禁用（cid 白名单 2/8/5/6）；域2：楼层 cid 引用只读报告。
+// 防呆：上游残缺整轮放弃。报告落 platform_config('brand_sync_state')。
+// 触发方式：SCF timer（brand-sync-timer，每日 07:30）自动 POST 下列 URL。
+//   POST /api/jobs/brand-sync/cron?token=<HMAC(JWT_SECRET,'brand-sync') 前 32 hex>
+// 手动触发（dry 先行）：POST /api/jobs/brand-sync  body: { dry?: bool }
+jobsRouter.post('/brand-sync/cron', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const token = String(req.query.token ?? req.headers['x-cron-token'] ?? '');
+    if (!process.env.JWT_SECRET || token !== cronToken('brand-sync')) {
+      throw new HttpError(401, 'BAD_CRON_TOKEN', '定时触发 token 无效');
+    }
+    const stats = await runBrandSync();
+    res.json({ ok: true, data: stats });
+  } catch (e) {
+    next(e);
+  }
+});
+
+jobsRouter.post('/brand-sync', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const stats = await runBrandSync({ dry: req.body?.dry === true });
+    res.json({ ok: true, data: stats });
   } catch (e) {
     next(e);
   }

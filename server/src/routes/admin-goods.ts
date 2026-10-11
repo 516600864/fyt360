@@ -293,6 +293,40 @@ adminGoodsRouter.patch('/self-goods/:id/status', requireAdmin, async (req: Reque
   } catch (e) { next(e); }
 });
 
+/** GET /api/admin/brands/sync-report → 对账报告（admin-37 上游对账区块；platform_config.brand_sync_state 由 brand-sync job 每日刷新） */
+adminGoodsRouter.get('/brands/sync-report', requireAdmin, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { rows } = await pool.query(`SELECT value, updated_at FROM platform_config WHERE key = 'brand_sync_state' LIMIT 1`);
+    if (!rows[0]) { res.json({ ok: true, data: null }); return; }
+    const v = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+    res.json({ ok: true, data: { ...v, updated_at: rows[0].updated_at } });
+  } catch (e) { next(e); }
+});
+
+/** POST /api/admin/brands/adopt → 未映射活动一键补配为 launch 行（admin-37 对账区块）
+ *  body: { actid, cid, name, logo?, category } —— category 由运营选（family 归属是运营事实，上游只给活动分类）
+ *  brand_code 默认 act_<actid>（全局唯一）；sync_source='auto'（上游驱动，后续对账自动接管增删） */
+adminGoodsRouter.post('/brands/adopt', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { actid, category, name, logo } = req.body ?? {};
+    const aid = Number(actid);
+    if (!Number.isInteger(aid) || aid <= 0) throw new HttpError(400, 'actid 非法', 'BAD_ACTID');
+    if (!category || typeof category !== 'string') throw new HttpError(400, 'category 必填（品牌家族归属）', 'BAD_CATEGORY');
+    const brandCode = `act_${aid}`;
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO brand_action_cfg
+         (site_scope, category, brand_code, name, icon, action_type, miniapp_cfg, sync_source, enabled)
+       VALUES ('all', $1, $2, $3, $4, 'launch', jsonb_build_object('mode','act','actid',$5::bigint), 'auto', TRUE)
+       ON CONFLICT (site_scope, category, brand_code) DO NOTHING
+       RETURNING id, brand_code, name`,
+      [category, brandCode, String(name ?? '').trim() || brandCode, logo ?? null, aid],
+    );
+    // 网关 rowCount 不可靠，以 RETURNING 为准（brand-sync 同款坑）；无行 = brand_code 冲突
+    if (!inserted[0]) throw new HttpError(409, '该活动已补配过（brand_code 冲突）', 'ALREADY_ADOPTED');
+    res.json({ ok: true, data: inserted[0] });
+  } catch (e) { next(e); }
+});
+
 /** GET /api/admin/brands → 品牌三轨列表（action 配置，全站共享配置） */
 adminGoodsRouter.get('/brands', requireAdmin, async (_req: Request, res: Response, next: NextFunction) => {
   try {

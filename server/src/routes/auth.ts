@@ -24,9 +24,12 @@ export const authRouter = Router();
 export async function bindInviter(siteId: string, userId: number, invite: unknown): Promise<boolean> {
   const code = String(invite ?? '').trim().toUpperCase();
   if (!code) return false;
+  // ⛔ 大小写匹配（2026-10-11 D先生 实锤全站 56 人 0 绑定的 silent bug）：邀请码生成用
+  //    user_id.toString(36) 产出小写（如 'FYTp' 存的是小写），而这里 toUpperCase 后
+  //    `invite_code = $2` 精确匹配 0 行 → 静默 return false。改 UPPER 两边大写比较（保留防呆）。
   const { rows: inv } = await pool.query(
     `SELECT user_id, parent_id, grand_id FROM "user"
-      WHERE site_id = $1 AND invite_code = $2 AND user_id <> $3 AND status = 'active' LIMIT 1`,
+      WHERE site_id = $1 AND UPPER(invite_code) = $2 AND user_id <> $3 AND status = 'active' LIMIT 1`,
     [siteId, code, userId]
   );
   if (!inv[0]) return false;
@@ -37,29 +40,46 @@ export async function bindInviter(siteId: string, userId: number, invite: unknow
     [userId, parent.user_id, parent.parent_id, parent.grand_id]
   );
   if (!bound[0]) return false;
-  await pool.query(
-    `WITH tx AS (
-       INSERT INTO ingot_tx (user_id, type, ref_id, amount, balance_after, remark)
-       VALUES ($1::bigint, 'INVITE_REWARD', $2::text, $3::int, 0, $4)
-       RETURNING tx_id
-     ), acc AS (
-       INSERT INTO ingot_account (user_id, balance, total_earned) VALUES ($1::bigint, $3::int, $3::int)
-       ON CONFLICT (user_id) DO UPDATE SET
-         balance = ingot_account.balance + EXCLUDED.balance,
-         total_earned = ingot_account.total_earned + EXCLUDED.total_earned,
-         updated_at = now()
-       RETURNING balance
-     )
-     SELECT (SELECT count(*)::int FROM tx) AS inserted`,
-    // ⚠ 网关坑：JSON number 传给 ::text cast 参数会 500 EXEC_ERROR，ref_id 必须传 string
-    [parent.user_id, String(userId), INVITE_REWARD_INGOT, `邀请新用户 #${userId}`]
-  );
-  // balance_after 回填（data-modifying CTE 间快照隔离，须独立语句；仅回填占位值 0，幂等）
-  await pool.query(
-    `UPDATE ingot_tx SET balance_after = COALESCE((SELECT balance FROM ingot_account WHERE user_id = $1::bigint), 0)
-      WHERE user_id = $1::bigint AND type = 'INVITE_REWARD' AND ref_id = $2::text AND balance_after = 0`,
-    [String(parent.user_id), String(userId)]
-  );
+  // 邀请奖励按站读 ingot_rule.invite_reward（045 站点级化；fallback 平台键 → 代码默认 500）
+  let reward = INVITE_REWARD_INGOT;
+  {
+    const { rows: cfg } = await pool.query(
+      `SELECT value FROM platform_config WHERE key = 'ingot_rule' AND site_id = $1::uuid LIMIT 1`, [siteId]);
+    const v = Number(cfg[0]?.value?.invite_reward);
+    if (Number.isFinite(v) && v >= 0) {
+      reward = v;
+    } else {
+      const { rows: plat } = await pool.query(
+        `SELECT value FROM platform_config WHERE key = 'ingot_rule' AND site_id IS NULL LIMIT 1`);
+      const pv = Number(plat[0]?.value?.invite_reward);
+      if (Number.isFinite(pv) && pv >= 0) reward = pv;
+    }
+  }
+  if (reward > 0) {
+    await pool.query(
+      `WITH tx AS (
+         INSERT INTO ingot_tx (user_id, type, ref_id, amount, balance_after, remark)
+         VALUES ($1::bigint, 'INVITE_REWARD', $2::text, $3::int, 0, $4)
+         RETURNING tx_id
+       ), acc AS (
+         INSERT INTO ingot_account (user_id, balance, total_earned) VALUES ($1::bigint, $3::int, $3::int)
+         ON CONFLICT (user_id) DO UPDATE SET
+           balance = ingot_account.balance + EXCLUDED.balance,
+           total_earned = ingot_account.total_earned + EXCLUDED.total_earned,
+           updated_at = now()
+         RETURNING balance
+       )
+       SELECT (SELECT count(*)::int FROM tx) AS inserted`,
+      // ⚠ 网关坑：JSON number 传给 ::text cast 参数会 500 EXEC_ERROR，ref_id 必须传 string
+      [parent.user_id, String(userId), reward, `邀请新用户 #${userId}`]
+    );
+    // balance_after 回填（data-modifying CTE 间快照隔离，须独立语句；仅回填占位值 0，幂等）
+    await pool.query(
+      `UPDATE ingot_tx SET balance_after = COALESCE((SELECT balance FROM ingot_account WHERE user_id = $1::bigint), 0)
+        WHERE user_id = $1::bigint AND type = 'INVITE_REWARD' AND ref_id = $2::text AND balance_after = 0`,
+      [String(parent.user_id), String(userId)]
+    );
+  }
   return true;
 }
 
@@ -117,9 +137,9 @@ async function finalizeLogin(siteId: string, userId: number, isNew: boolean, inv
   ]);
   await pool.query(
     `INSERT INTO member (user_id, level_id)
-     SELECT $1, l.level_id FROM member_level l WHERE l.code = 'L1'
+     SELECT $1, l.level_id FROM member_level l WHERE l.code = 'L1' AND l.site_id = $2::uuid
      ON CONFLICT (user_id) DO NOTHING`,
-    [userId]
+    [userId, siteId]
   );
   const bound = await bindInviter(siteId, userId, invite);
   return { token: signUserToken({ userId, siteId }), userId, inviteCode, isNew, invitedBound: bound };

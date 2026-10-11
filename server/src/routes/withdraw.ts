@@ -28,9 +28,14 @@ async function scope(admin: AdminJwtPayload, code: string): Promise<string[]> {
   return admin.siteIds;
 }
 
-/** 提现规则（platform_config.withdraw_rule，决策#6；2026-10-10 无门槛口径 min_amount=0） */
-export async function withdrawRule(): Promise<{ min_amount: number; fee_rate: number; per_txn_limit: number }> {
-  const { rows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'withdraw_rule' LIMIT 1`);
+/** 提现规则（platform_config.withdraw_rule 站点维度，045 起；fallback 平台键→默认；2026-10-10 无门槛口径 min_amount=0） */
+export async function withdrawRule(siteId?: string): Promise<{ min_amount: number; fee_rate: number; per_txn_limit: number }> {
+  if (siteId) {
+    const { rows: siteRow } = await pool.query(
+      `SELECT value FROM platform_config WHERE key = 'withdraw_rule' AND site_id = $1::uuid LIMIT 1`, [siteId]);
+    if (siteRow[0]?.value) return siteRow[0].value;
+  }
+  const { rows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'withdraw_rule' AND site_id IS NULL LIMIT 1`);
   return rows[0]?.value ?? { min_amount: 0, fee_rate: 0, per_txn_limit: 5000 };
 }
 
@@ -56,7 +61,7 @@ withdrawRouter.get('/summary', requireAdmin, async (req: Request, res: Response,
         WHERE u.site_id IN (${ph})`,
       sites
     );
-    const rule = await withdrawRule();
+    const rule = await withdrawRule(sites.length === 1 ? sites[0] : undefined);
     res.json({ ok: true, data: { ...rows[0], rule } });
   } catch (e) { next(e); }
 });

@@ -101,6 +101,14 @@ const SELF = `provider = 'self'`;
 const NOT_REFUNDED = `COALESCE(refund_status, 'none') <> 'refunded'`;
 
 /**
+ * 收入口径状态过滤（2026-10-11 D先生 定稿：有效 = paid/settled）。
+ * ⛔ created（待支付）佣金是浮云（京东单 3647454013240990 曾以 2.42 混入昨日收入，
+ *    2.91 vs 0.49 对账实锤）、closed（已关闭）未成交——都不进收入/GMV。
+ * ⛔ 同样**不带表别名前缀**；只跟 NOT_REFUNDED 配对用在"算收入/算GMV"的聚合里。
+ */
+const INCOME_STATUS = `platform_status IN ('paid', 'settled')`;
+
+/**
  * GET /api/admin/dashboard/summary?site=&range=today|yesterday|7d|30d|custom&from=&to=
  */
 dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
@@ -131,18 +139,18 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
     //    ⛔ 所有收入聚合统一 FILTER 掉 refunded：退款单佣金不计收入（决策 #38 补充口径）
     const { rows: revRows } = await pool.query(
       `SELECT
-         COALESCE(SUM(o.commission) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED}), 0)::float AS cps_cur,
-         COALESCE(SUM(o.commission) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS cps_prev,
-         COALESCE(SUM(o.pay_price) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED}), 0)::float AS gmv_cps_cur,
-         COALESCE(SUM(o.pay_price) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS gmv_cps_prev,
-         COALESCE(SUM(o.pay_price) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED}), 0)::float AS self_cur,
-         COALESCE(SUM(o.pay_price) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS self_prev,
-         COALESCE(SUM(o.commission) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED}), 0)::float AS self_comm_cur,
-         COALESCE(SUM(o.commission) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS self_comm_prev,
-         COALESCE(SUM(o.cost_amount) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED}), 0)::float AS self_cost_cur,
-         COALESCE(SUM(o.cost_amount) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS self_cost_prev,
-         COUNT(*) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED})::int AS self_cnt,
-         COUNT(*) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND o.cost_amount IS NULL)::int AS self_cost_missing       FROM "order" o
+         COALESCE(SUM(o.commission) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS cps_cur,
+         COALESCE(SUM(o.commission) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED} AND ${INCOME_STATUS} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS cps_prev,
+         COALESCE(SUM(o.pay_price) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS gmv_cps_cur,
+         COALESCE(SUM(o.pay_price) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED} AND ${INCOME_STATUS} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS gmv_cps_prev,
+         COALESCE(SUM(o.pay_price) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS self_cur,
+         COALESCE(SUM(o.pay_price) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS self_prev,
+         COALESCE(SUM(o.commission) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS self_comm_cur,
+         COALESCE(SUM(o.commission) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS self_comm_prev,
+         COALESCE(SUM(o.cost_amount) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS self_cost_cur,
+         COALESCE(SUM(o.cost_amount) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS} AND o.paid_at >= ${PF} AND o.paid_at < ${PT}), 0)::float AS self_cost_prev,
+         COUNT(*) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS})::int AS self_cnt,
+         COUNT(*) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS} AND o.cost_amount IS NULL)::int AS self_cost_missing       FROM "order" o
        WHERE o.site_id::text IN (${ph}) AND o.paid_at >= ${F} AND o.paid_at < ${T}`,
       pCurPrev,
     );
@@ -219,10 +227,10 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
       `SELECT
          COUNT(*)::int AS orders_cur,
          COUNT(*) FILTER (WHERE o.paid_at >= ${PF} AND o.paid_at < ${PT})::int AS orders_prev,
-         COUNT(*) FILTER (WHERE o.rebate_at IS NOT NULL AND ${NOT_REFUNDED})::int AS settled_cnt,
-         COUNT(*) FILTER (WHERE o.rebate_at IS NULL AND ${NOT_REFUNDED})::int AS unsettled_cnt,
-         COALESCE(SUM(o.commission) FILTER (WHERE o.rebate_at IS NOT NULL AND ${NOT_REFUNDED}), 0)::float AS settled_comm,
-         COALESCE(SUM(o.commission) FILTER (WHERE o.rebate_at IS NULL AND ${NOT_REFUNDED}), 0)::float AS unsettled_comm,
+         COUNT(*) FILTER (WHERE o.rebate_at IS NOT NULL AND ${NOT_REFUNDED} AND ${INCOME_STATUS})::int AS settled_cnt,
+         COUNT(*) FILTER (WHERE o.rebate_at IS NULL AND ${NOT_REFUNDED} AND ${INCOME_STATUS})::int AS unsettled_cnt,
+         COALESCE(SUM(o.commission) FILTER (WHERE o.rebate_at IS NOT NULL AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS settled_comm,
+         COALESCE(SUM(o.commission) FILTER (WHERE o.rebate_at IS NULL AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS unsettled_comm,
          COUNT(DISTINCT o.buyer_id)::int AS buyers
        FROM "order" o
        WHERE o.site_id::text IN (${ph}) AND o.paid_at >= ${F} AND o.paid_at < ${T}`,
@@ -239,10 +247,10 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
          SELECT generate_series(${F}::date, (${T}::date - interval '1 day')::date, interval '1 day')::date AS day
        ), agg AS (
          SELECT date_trunc('day', o.paid_at)::date AS day,
-                COALESCE(SUM(o.commission) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED}), 0)::float AS cps,
-                COALESCE(SUM(o.pay_price) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED}), 0)::float AS self_in,
-                COALESCE(SUM(o.cost_amount) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED}), 0)::float AS self_cost,
-                COALESCE(SUM(o.commission) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED}), 0)::float AS self_comm,
+                COALESCE(SUM(o.commission) FILTER (WHERE NOT (${SELF}) AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS cps,
+                COALESCE(SUM(o.pay_price) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS self_in,
+                COALESCE(SUM(o.cost_amount) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS self_cost,
+                COALESCE(SUM(o.commission) FILTER (WHERE ${SELF} AND ${NOT_REFUNDED} AND ${INCOME_STATUS}), 0)::float AS self_comm,
                 COALESCE(SUM(o.pay_price) FILTER (WHERE ${SELF} AND o.refund_status = 'refunded'), 0)::float AS self_refund
            FROM "order" o
           WHERE o.site_id::text IN (${ph}) AND o.paid_at >= ${F} AND o.paid_at < ${T}
@@ -271,7 +279,7 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
       `SELECT COALESCE(o.biz_category, 'other') AS cat, COALESCE(SUM(o.commission), 0)::float AS gross
          FROM "order" o
         WHERE o.site_id::text IN (${ph}) AND o.paid_at >= ${F} AND o.paid_at < ${T}
-          AND NOT (${SELF}) AND ${NOT_REFUNDED}
+          AND NOT (${SELF}) AND ${NOT_REFUNDED} AND ${INCOME_STATUS}
         GROUP BY 1 ORDER BY gross DESC`,
       pCur,
     );

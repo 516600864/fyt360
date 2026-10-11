@@ -376,15 +376,14 @@ ordersRouter.get('/', requireAdmin, async (req: Request, res: Response, next: Ne
       goods_title: r.goods_title ?? '—',
       pay_price: r.pay_price,
       commission: r.commission,
-      // 积分兑换单不展示佣金（与元宝体系无关）
-      commission_visible: orderType(r.provider) !== 'ingot',
+      // 佣金全量展示（2026-10-11 D先生 纠偏：权益充值=recharge 走 open/rerechargeorder
+      // 响应带 commission，实际是 CPS 形态，不藏——旧口径「积分兑换不参与佣金」是错的）
+      commission_visible: true,
       // 佣金三级分配明细（level 1=自购 2=直推 3=间推）；平台盈余=commission-Σ有效分配，前端计算
       commissions: flowByOrder.get(r.id) ?? [],
-      buyer: r.buyer_nickname
-        ? `${String(r.buyer_nickname).slice(0, 1)}**`
-        : r.buyer_id
-          ? `用户#${r.buyer_id}`
-          : '未归因',
+      buyer: r.buyer_id
+        ? `${r.buyer_nickname ? `${String(r.buyer_nickname).slice(0, 1)}**` : '用户'}(${r.buyer_id})` // 2026-10-11 D先生：昵称+user_id 同显
+        : '未归因',
       status: statusLabel(r),
       fulfillment: r.fulfillment ?? null, // self 单恒 group 到店核销（2026-09-29 需求更正）；CPS/直充 null
       coupon: r.coupon_id
@@ -481,9 +480,9 @@ ordersRouter.get('/export', requireAdmin, async (req: Request, res: Response, ne
         esc(r.order_sn), esc(r.biz_channel ?? r.provider), esc(r.biz_category ?? orderType(r.provider)),
         esc(r.site_code), esc(r.goods_title),
         esc(r.pay_price), esc(r.commission), esc(statusLabel(r)),
-        esc(r.buyer_nickname
-          ? `${String(r.buyer_nickname).slice(0, 1)}**`
-          : r.buyer_id ? `用户#${r.buyer_id}` : '未归因'),
+        esc(r.buyer_id
+          ? `${r.buyer_nickname ? `${String(r.buyer_nickname).slice(0, 1)}**` : '用户'}(${r.buyer_id})`
+          : '未归因'),
         fmt(r.paid_at ?? r.created_at), fmt(r.settled_at), fmt(r.platform_updated_at),
       ].join(','));
     }

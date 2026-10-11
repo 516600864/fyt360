@@ -43,7 +43,8 @@ memberRouter.get('/level', async (req: Request, res: Response, next: NextFunctio
     );
     const { rows: levels } = await pool.query(
       `SELECT level_id, code, name, sort, ingot_price, self_rate, direct_rate, team_rate, "desc"
-         FROM member_level WHERE status = 'active' ORDER BY sort`
+         FROM member_level WHERE site_id = $2::uuid AND status = 'active' ORDER BY sort`,
+      [userId, req.user!.siteId]
     );
     const balance = Number(acc[0]?.balance ?? 0);
     const curSort = cur[0] ? Number(levels.find((l) => l.level_id === cur[0].level_id)?.sort ?? 0) : 0;
@@ -89,8 +90,8 @@ memberRouter.post('/level/exchange', async (req: Request, res: Response, next: N
 
     const { rows: target } = await pool.query(
       `SELECT level_id, code, name, sort, ingot_price FROM member_level
-        WHERE code = $1::text AND status = 'active' LIMIT 1`,
-      [code]
+        WHERE code = $1::text AND site_id = $2::uuid AND status = 'active' LIMIT 1`,
+      [code, req.user!.siteId]
     );
     const lv = target[0];
     if (!lv) throw new HttpError(404, '等级不存在', 'LEVEL_NOT_FOUND');

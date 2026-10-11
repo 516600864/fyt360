@@ -4,8 +4,11 @@
     <div class="head-row">
       <div>
         <h2 class="title">佣金与元宝结算配置</h2>
-        <p class="subtitle">等级 / 比例 / 提现 / 激励开关 · 改动实时生效并下发各租户</p>
+        <p class="subtitle">等级 / 比例 / 提现 / 激励开关 · 按站点独立配置 · 改动实时生效</p>
       </div>
+      <el-select v-model="siteCode" size="small" style="width: 180px" @change="load">
+        <el-option v-for="s in siteOptions" :key="s.code" :label="s.name" :value="s.code" />
+      </el-select>
     </div>
 
     <div class="grid">
@@ -13,7 +16,7 @@
         <div class="card">
           <div class="card-head">
             <span class="card-title">🏅 会员等级管理<span class="muted">（元宝兑换 · 永久有效）</span></span>
-            <button class="gold-btn" :disabled="!isPlatform" @click="onAddLevel">＋ 新增等级</button>
+            <button class="gold-btn" @click="onAddLevel">＋ 新增等级</button>
           </div>
           <el-table :data="levels" v-loading="loading" style="width: 100%" :header-cell-style="headerStyle">
             <el-table-column label="等级" min-width="170">
@@ -56,7 +59,7 @@
                   <a class="op save" @click.prevent="saveLevel(row)">保存</a>
                   <a class="op" @click.prevent="cancelEdit">取消</a>
                 </template>
-                <a v-else class="op" :class="{ disabled: !isPlatform }" @click.prevent="startEdit(row)">编辑</a>
+                <a v-else class="op"  @click.prevent="startEdit(row)">编辑</a>
               </template>
             </el-table-column>
           </el-table>
@@ -85,7 +88,7 @@
             <span class="rule-unit">元宝 / 人</span>
           </div>
           <p class="tiny-note">元宝不可提现，仅可兑换：仅可用于兑换会员等级 · 灵活配置 OP/团购/积分兑换订单率。</p>
-          <button class="rose-btn" :disabled="!isPlatform" @click="saveIngotRule">保存规则</button>
+          <button class="rose-btn" @click="saveIngotRule">保存规则</button>
         </div>
 
         <div class="card">
@@ -95,7 +98,7 @@
               <div class="toggle-label">{{ it.label }}</div>
               <div class="toggle-sub">未开启时该项下单不参与三级分配结算</div>
             </div>
-            <el-switch v-model="it.on" :disabled="!isPlatform" @change="saveDistAlloc" />
+            <el-switch v-model="it.on" @change="saveDistAlloc" />
           </div>
         </div>
 
@@ -107,7 +110,7 @@
             <div class="wd-cell"><span class="wd-cap">单笔限额</span><el-input-number v-model="wdRule.per_txn_limit" :min="1" :step="500" size="small" controls-position="right" style="width: 110px" /></div>
           </div>
           <p class="tiny-note">提现经由企业打款 · 企业付款到零钱，T+1 到账；{{ feeText }}</p>
-          <button class="rose-btn" :disabled="!isPlatform" @click="saveWdRule">保存门槛</button>
+          <button class="rose-btn" @click="saveWdRule">保存门槛</button>
         </div>
       </div>
     </div>
@@ -117,8 +120,16 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import { adminApi, currentSite } from '../../lib/api.js';
 
-const isPlatform = JSON.parse(localStorage.getItem('fyt_admin_info') ?? 'null')?.role === 'platform_admin';
+// 站点级化（045）：配置按站读写；编辑权限由后端 requireOwnerOrPlatform 裁决（owner 可配本站，平台管理员可代写）
+// ⛔ 2026-10-11 修：登录响应 admin 对象只有 {adminId,username,role}，没有 sites 字段——
+//   曾误读 localStorage 导致选项恒 fallback [{code:'site-a'}]，站点管理员（如 ducunyi 绑 niwo/xincao3）
+//   请求 site=site-a 被 assertSiteAccess 403 → 页面 No Data + stats 全 0（D先生实锤）。
+//   站点选项改从 GET /admin/sites/my 拉（平台管理员=全站，站点管理员=绑定站），
+//   默认选中当前会话站点（决策#27），会话无站点上下文则取列表第一个。
+const siteOptions = ref([]);
+const siteCode = ref('');
 const headerStyle = { background: '#fff6e9', color: '#3d2530', fontWeight: 700 };
 
 const loading = ref(false);
@@ -150,7 +161,7 @@ async function api(path, opts = {}) {
 async function load() {
   loading.value = true;
   try {
-    const d = await api('/admin/commission/config');
+    const d = await api(`/admin/commission/config?site=${encodeURIComponent(siteCode.value)}`);
     levels.value = d.levels;
     stats.value = d.stats;
     ingotRule.value = { self_return: 100, invite_reward: 500, ...d.rules.ingot_rule };
@@ -164,14 +175,13 @@ async function load() {
 }
 
 function startEdit(row) {
-  if (!isPlatform) return ElMessage.info('结算规则仅平台管理员可修改');
   editing.value = row.code;
   draft.value = { ingot_price: row.ingot_price, self_rate: row.self_rate, direct_rate: row.direct_rate, team_rate: row.team_rate };
 }
 function cancelEdit() { editing.value = ''; }
 async function saveLevel(row) {
   try {
-    await api(`/admin/commission/levels/${row.code}`, { method: 'PATCH', body: draft.value });
+    await api(`/admin/commission/levels/${row.code}?site=${encodeURIComponent(siteCode.value)}`, { method: 'PATCH', body: draft.value });
     ElMessage.success(`${row.code} 档位已更新，实时生效`);
     editing.value = '';
     await load();
@@ -180,24 +190,34 @@ async function saveLevel(row) {
 function onAddLevel() { ElMessage.info('等级档位扩展随运营里程碑开放（结算逻辑按 L1-L3 定稿）'); }
 async function saveIngotRule() {
   try {
-    await api('/admin/commission/config/ingot_rule', { method: 'PUT', body: { value: ingotRule.value } });
+    await api(`/admin/commission/config/ingot_rule?site=${encodeURIComponent(siteCode.value)}`, { method: 'PUT', body: { value: ingotRule.value } });
     ElMessage.success('元宝规则已保存');
   } catch (e) { ElMessage.error(e.message); }
 }
 async function saveDistAlloc() {
   try {
-    await api('/admin/commission/config/dist_alloc', { method: 'PUT', body: { value: { items: distItems.value } } });
+    await api(`/admin/commission/config/dist_alloc?site=${encodeURIComponent(siteCode.value)}`, { method: 'PUT', body: { value: { items: distItems.value } } });
     ElMessage.success('不分配配置已保存');
   } catch (e) { ElMessage.error(e.message); }
 }
 async function saveWdRule() {
   try {
-    await api('/admin/commission/config/withdraw_rule', { method: 'PUT', body: { value: wdRule.value } });
+    await api(`/admin/commission/config/withdraw_rule?site=${encodeURIComponent(siteCode.value)}`, { method: 'PUT', body: { value: wdRule.value } });
     ElMessage.success('提现门槛已保存');
   } catch (e) { ElMessage.error(e.message); }
 }
 
-onMounted(load);
+onMounted(async () => {
+  try {
+    const d = await adminApi('/admin/sites/my');
+    siteOptions.value = (d.sites ?? []).map((s) => ({ code: s.code, name: s.name }));
+  } catch { /* 拉取失败时 load() 内会给出错误提示 */ }
+  if (!siteOptions.value.length) siteOptions.value = [{ code: 'site-a', name: 'site-a' }];
+  const session = currentSite();
+  const cur = session?.scope === 'site' ? session.code : '';
+  siteCode.value = siteOptions.value.some((s) => s.code === cur) ? cur : siteOptions.value[0].code;
+  await load();
+});
 </script>
 
 <style scoped>

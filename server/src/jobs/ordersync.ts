@@ -1,6 +1,6 @@
 // 订单同步与结算（M2.3）：唯一落库面=订单（商品不入库铁律）
 // 拉取（D先生 2026-10-10 归口）：**只走好京客统一联盟 4 类**（v2 网关，v1 联盟接口已退役）：
-//        pforder（平台活动，免签）· diancan/orderlist（点餐，签名·复合包裹）· open/movieorder（影票，签名·secret单包裹）· recharge/orderlist（权益兑换，签名·复合包裹+https+POST）
+//        pforder（平台活动，免签）· diancan/orderlist（点餐，签名·复合包裹）· open/movieorder（影票，签名·secret单包裹）· open/rerechargeorder（权益充值，签名·secret单包裹+https+POST，响应带 commission/isbalance）
 // 入库：order_sn = `${provider}:${平台单号}:${行键}` 幂等 upsert，三维状态机 only-forward
 // 结算：platform_status='settled' 且 rebate_at IS NULL → 事务内 元宝返还（1元=100元宝，决策#21）+ 佣金三跳分配
 // 冲销：refund_status='refunded' 且已结算且 chargeback_at IS NULL → 扣回元宝/佣金
@@ -481,6 +481,8 @@ const fetchMovie = mayiFetcher(
   'movie',
   (r) => {
     // status：6待付款 1已付款 2受理中 3待出票 5已结算 10关闭（实测关闭单 status=10/statusstr=订单关闭）
+    // ⛔ 白名单判定（2026-10-11 D先生 测试单 53202610111200097965 实锤）：旧 `s>=1→paid`
+    //    把 6（待付款）吞成 paid——与 pf「待付款掉兜底」同款坑。未知态一律 created（保守）。
     const s = num(r.status);
     const statusStr = String(r.statusstr ?? '');
     return {
@@ -488,7 +490,7 @@ const fetchMovie = mayiFetcher(
         ? 'closed'
         : s === 5
           ? 'settled'
-          : s >= 1
+          : s >= 1 && s <= 3
             ? 'paid'
             : 'created',
       refunded: String(r.refundid ?? '') !== '' || num(r.return_price ?? 0) > 0,
@@ -498,34 +500,36 @@ const fetchMovie = mayiFetcher(
 );
 
 /**
- * ④ recharge/orderlist 权益充值/直充：需签名 + https + POST + apikey 进包裹串；payprice 单位=分
+ * ④ open/rerechargeorder 权益充值/直充：secret 单包裹签名（open 系统一口径）+ https + POST；金额单位=分
  *
- * ⛔ 三处实测踩坑（2026-10-04）：
- *   ① 分页参数名是 **page/limit**，不是 pageindex/pagesize —— 用错的上游直接返回空 list
- *      （签名能过但 total=0），改对后 total=829（829 单历史单躺着没同步）。
- *   ② 时间参数名是 **starttime/endtime（秒）**，用 updateTimeStart/updatetime 等
- *      会让**签名直接失败**（"签名错误"）—— 因为它不认这些 key，strparam 集合对不上。
- *   ③ 签名包裹必须用 `apikey=X&secret=Y` 复合式（单纯 secret= 包裹报签名错误）。
+ * ⛔ 端点迁移（2026-10-11 D先生 抓的）：
+ *   旧端点 recharge/orderlist 响应**无 commission 字段** → recharge 单佣金全落 0，
+ *   看板收入少算、订单中心佣金列空。正确端点是 **open/rerechargeorder**（同参 page/limit/
+ *   starttime/endtime 秒级，响应多 commission / isbalance / statusstr 等字段）。
+ *   实测（deploy/scripts/probe-rerecharge.mjs）：secret 单包裹一次通过（复合包裹不测了，
+ *   open 系 movieorder 同款单包裹已实锤），带不带 uid 参数签名均通过。
+ *   佣金=分：commission=3 → 0.03 元（华为音乐单 66202610101303322379 实测）。
+ * 状态判定升级（对齐 pf 结构化口径，D先生 定稿）：isbalance=1 → settled；
+ *   status：0待付款 1已付款 2充值中 3充值完成待结算 5已结算 10订单关闭(充值失败已退款)。
  */
 const fetchRecharge = mayiFetcher(
-  'recharge/orderlist',
+  'open/rerechargeorder',
   'recharge',
   (r) => {
-    // status：0待付款 1已付款 2充值中 3充值完成 5已结算 10订单关闭(充值失败已退款)
     const s = num(r.status);
-    const statusStr = String(r.statusstr ?? '');
+    const closedOrRefunded = s === 10 || num(r.return_price ?? 0) > 0;
     return {
-      st: s === 10 || /关闭|失败|退款/.test(statusStr)
+      st: closedOrRefunded
         ? 'closed'
-        : s === 5
+        : num(r.isbalance) === 1
           ? 'settled'
           : s >= 1
             ? 'paid'
             : 'created',
-      refunded: s === 10 || num(r.return_price ?? 0) > 0,
+      refunded: closedOrRefunded,
     };
   },
-  { signed: true, rechargeStyle: true }
+  { signed: true, rechargeStyle: true, signStyle: 'secret' }
 );
 
 // ⛔ 转链/订单归口（D先生 2026-10-10）：v1 联盟接口（jd/tb/pdd/vip getorder*）全部退役，
@@ -745,6 +749,30 @@ WITH ins AS (
 SELECT (SELECT count(*)::int FROM up) AS done;
 `;
 
+/**
+ * 站点元宝返还比例（045 结算配置站点级化：ingot_rule.self_return 按站读）。
+ * fallback 链：站点行 → 平台键 → INGOT_PER_YUAN 默认。job 生命周期内按站缓存。
+ */
+const siteIngotRateCache = new Map<string, number>();
+export async function siteIngotRateSelfReturn(siteId: string): Promise<number> {
+  const cached = siteIngotRateCache.get(siteId);
+  if (cached !== undefined) return cached;
+  let rate = INGOT_PER_YUAN;
+  const { rows } = await pool.query(
+    `SELECT value FROM platform_config WHERE key = 'ingot_rule' AND site_id = $1::uuid LIMIT 1`, [siteId]);
+  const v = Number(rows[0]?.value?.self_return);
+  if (Number.isFinite(v) && v > 0) {
+    rate = v;
+  } else {
+    const { rows: plat } = await pool.query(
+      `SELECT value FROM platform_config WHERE key = 'ingot_rule' AND site_id IS NULL LIMIT 1`);
+    const pv = Number(plat[0]?.value?.self_return);
+    if (Number.isFinite(pv) && pv > 0) rate = pv;
+  }
+  siteIngotRateCache.set(siteId, rate);
+  return rate;
+}
+
 async function settleDue(siteId: string, providers: string[]): Promise<number> {
   // providers 以逗号串传参（网关对数组参数绑定不可靠，string_to_array 两种 db 模式均正确）
   //
@@ -807,8 +835,8 @@ async function settleDue(siteId: string, providers: string[]): Promise<number> {
     );
     if (!claimed.rows.length) continue;
     try {
-      // 1. 元宝返还（按实付金额）
-      const amount = Math.floor(num(o.pay_price) * INGOT_PER_YUAN);
+      // 1. 元宝返还（按实付金额 × 站点 self_return 比例）
+      const amount = Math.floor(num(o.pay_price) * (await siteIngotRateSelfReturn(siteId)));
       if (amount > 0) {
         await pool.query(rebateSql, [target, String(o.id), amount, `订单返元宝 ${o.order_sn}`]);
         await pool.query(txBalanceFixSql, [target, 'ORDER_REBATE', String(o.id)]);
@@ -934,7 +962,7 @@ async function chargebackDue(siteId: string, providers: string[]): Promise<numbe
     if (!claimed.rows.length) continue;
     try {
       if (num(o.pay_price) > 0) {
-        const amount = Math.floor(num(o.pay_price) * INGOT_PER_YUAN);
+        const amount = Math.floor(num(o.pay_price) * (await siteIngotRateSelfReturn(siteId)));
         const cbRes = await pool.query(chargebackIngotSql, [target, String(o.id), amount, `退款冲销 ${o.order_sn}`]);
         if (cbRes.rows[0]?.inserted > 0) {
           await pool.query(

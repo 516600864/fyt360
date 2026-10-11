@@ -67,6 +67,18 @@ const JOBS = {
     desc: 'fyt360 ordersweep timer (5min -> cloudrun ordersweep endpoint)',
     envExtra: {},
   },
+  // 品牌三轨对账（2026-10-10）：actlist 失效 actid 自动禁用 + 楼层 cid 引用报告，每日 07:30。
+  'brand-sync': {
+    funcName: 'brand-sync-timer',
+    funcDir: 'brand-sync-timer', // 通用单 POST 桥
+    triggerName: 'brand-sync-daily',
+    cron: process.env.BRANDSYNC_TRIGGER ?? '0 30 7 * * * *',
+    url: jobUrl('BRANDSYNC_URL', 'brand-sync'),
+    hmac: 'brand-sync',
+    envPrefix: 'JOB',
+    desc: 'fyt360 brand-sync timer (daily 07:30 -> cloudrun brand-sync endpoint)',
+    envExtra: {},
+  },
 };
 
 const jobKey = arg('job', 'all');

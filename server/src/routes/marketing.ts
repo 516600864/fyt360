@@ -3,7 +3,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { pool } from '../db/client.js';
 import { HttpError } from '../middleware/errors.js';
-import { requireAdmin, assertSiteAccess, type AdminJwtPayload } from '../middleware/auth.js';
+import { requireAdmin, assertSiteAccess, requireOwnerOrPlatform, type AdminJwtPayload } from '../middleware/auth.js';
 
 export const marketingRouter = Router();
 
@@ -152,25 +152,36 @@ marketingRouter.get('/seckills', requireAdmin, async (req: Request, res: Respons
   } catch (e) { next(e); }
 });
 
-/** GET /api/admin/marketing/dist-switch → 三级分佣开关（platform_config.dist_alloc 单一真相源） */
+/** GET /api/admin/marketing/dist-switch?site= → 三级分佣开关（站点维度，fallback 平台键） */
 marketingRouter.get('/dist-switch', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { rows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'dist_alloc' LIMIT 1`);
-    res.json({ ok: true, data: { items: rows[0]?.value?.items ?? [] } });
+    const siteId = await oneSite(req.admin!, String(req.query.site ?? req.headers['x-fyt-site'] ?? ''));
+    const { rows: siteRow } = await pool.query(
+      `SELECT value FROM platform_config WHERE key = 'dist_alloc' AND site_id = $1::uuid LIMIT 1`, [siteId]);
+    let items = siteRow[0]?.value?.items;
+    if (!items) {
+      const { rows: platRow } = await pool.query(
+        `SELECT value FROM platform_config WHERE key = 'dist_alloc' AND site_id IS NULL LIMIT 1`);
+      items = platRow[0]?.value?.items ?? [];
+    }
+    res.json({ ok: true, data: { items } });
   } catch (e) { next(e); }
 });
 
-/** PUT /api/admin/marketing/dist-switch {items} → 更新（仅超管） */
+/** PUT /api/admin/marketing/dist-switch?site= {items} → 更新本站（站点负责人/平台管理员） */
 marketingRouter.put('/dist-switch', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (req.admin!.role !== 'platform_admin') throw new HttpError(403, 'PLATFORM_ONLY', '分佣开关仅平台管理员可修改');
+    const siteId = await oneSite(req.admin!, String(req.query.site ?? req.headers['x-fyt-site'] ?? ''));
+    await requireOwnerOrPlatform(req.admin!, siteId);
     const items = req.body?.items;
     if (!Array.isArray(items) || items.some((i) => !i || typeof i.key !== 'string' || typeof i.label !== 'string' || typeof i.on !== 'boolean')) {
       throw new HttpError(400, 'items 格式非法', 'BAD_REQUEST');
     }
     await pool.query(
-      `UPDATE platform_config SET value = $2::jsonb, updated_at = now(), updated_by = $3::bigint WHERE key = $1::text`,
-      ['dist_alloc', JSON.stringify({ items }), req.admin!.adminId]
+      `INSERT INTO platform_config (key, site_id, value, updated_by) VALUES ('dist_alloc', $1::uuid, $2::jsonb, $3)
+       ON CONFLICT (key, COALESCE(site_id, '00000000-0000-0000-0000-000000000000'::uuid))
+       DO UPDATE SET value = $2::jsonb, updated_at = now(), updated_by = $3`,
+      [siteId, JSON.stringify({ items }), req.admin!.adminId],
     );
     res.json({ ok: true, data: { saved: items.length } });
   } catch (e) { next(e); }
