@@ -1,6 +1,7 @@
 # FYT360 · 吃喝玩乐购 一站全变现
 
 > 开源一站式全域流量变现 SaaS。多租户多站点（`site_id` 为业务隔离键），uni-app 三端（小程序 / H5 / 后台）+ PostgreSQL + 腾讯云 CloudBase。
+<img width="3440" height="1636" alt="FYT360-系统架构总览" src="https://github.com/user-attachments/assets/d303f5ed-6895-49c7-b07e-f3aa4b05e64a" />
 
 ## 合作品牌 · 100+ 品牌直连
 
