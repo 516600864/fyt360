@@ -59,6 +59,36 @@ export async function resolveHjkConfig(siteCode?: string): Promise<HjkProviderCo
   return { siteId: cred.siteId, apikey: cred.apikey, apiSecret: cred.apiSecret };
 }
 
+/**
+ * 按 site_id（uuid）解析蚂蚁凭据——C 端登录态（JWT）只带 siteId 不带 code，
+ * 必须用本函数；resolveHjkConfig(undefined) 恒 fallback site-a（chat.ts 2026-10-11 实锤：
+ * AI 管家转链/搜索全在用 site-a 的 key，niwo 用户佣金归错蚂蚁账户）。
+ */
+export async function resolveHjkConfigBySiteId(siteId: string): Promise<HjkProviderConfig> {
+  const ck = `mayixingqiu:uuid:${siteId}`;
+  const hit = cache.get(ck);
+  if (hit && hit.expires > Date.now()) {
+    if (!hit.cred) throw new HttpError(503, 'PROVIDER_NOT_CONFIGURED', '该站点未配置 mayixingqiu 凭据');
+    return { siteId, apikey: hit.cred.apikey, apiSecret: hit.cred.apiSecret };
+  }
+  const { rows } = await pool.query(
+    `SELECT apikey, api_secret FROM provider_config
+      WHERE site_id = $1::uuid AND provider = 'mayixingqiu' AND status = 'active'
+      LIMIT 1`,
+    [siteId],
+  );
+  const cred: ProviderCred | null = rows[0]
+    ? {
+        siteId,
+        apikey: String(rows[0].apikey),
+        apiSecret: rows[0].api_secret != null ? String(rows[0].api_secret) : null,
+      }
+    : null;
+  cache.set(ck, { cred, expires: Date.now() + CACHE_TTL_MS });
+  if (!cred) throw new HttpError(503, 'PROVIDER_NOT_CONFIGURED', '该站点未配置 mayixingqiu 凭据');
+  return { siteId, apikey: cred.apikey, apiSecret: cred.apiSecret };
+}
+
 export function invalidateProviderCache(siteCode?: string): void {
   if (siteCode) {
     for (const k of cache.keys()) {

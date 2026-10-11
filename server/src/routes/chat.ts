@@ -21,7 +21,7 @@ import { Router, type Request, type Response } from 'express';
 import { pool } from '../db/client.js';
 import { HttpError } from '../middleware/errors.js';
 import { hjkCall, extractList, normalizeGoods } from '../lib/haojingke.js';
-import { resolveHjkConfig, resolveProvider } from '../lib/provider.js';
+import { resolveHjkConfigBySiteId } from '../lib/provider.js';
 import { chatComplete } from '../lib/llm.js';
 import { msgSecCheck } from '../lib/wechat.js';
 import { writeAudit } from '../lib/audit.js';
@@ -169,9 +169,11 @@ function toNum(v: unknown): number | null {
  *  返货 rebate：仅旧 tb 通道有上游佣金；万能通道响应无佣金字段 → null（前端隐藏，绝不编数）。
  *  goods：tb 旧响应自带全套；万能响应带 goods_name/goods_price/goods_pic（jd/pdd 实测）。 */
 async function doConvert(
-  ref: ParsedRef, userId: number,
+  ref: ParsedRef, userId: number, siteId: string,
 ): Promise<{ link: LinkResult & { platform: string }; rebate: number | null; goods?: ConvertGoods }> {
-  const cfg = await resolveHjkConfig(undefined);
+  // apikey 必须跟会话站点走（铁律：凭据按 site_id）——resolveHjkConfig(undefined) 恒 fallback
+  //   site-a（provider.ts:28），niwo 用户转链佣金归错蚂蚁账户（2026-10-11 D先生 实锤）
+  const cfg = await resolveHjkConfigBySiteId(siteId);
   if (ref.tbLegacy) {
     try {
       return await legacyConvert(ref.tbLegacy, userId, cfg.apikey);
@@ -247,10 +249,10 @@ function cleanKeyword(title: string): string {
 /** 同款跨平台搜索（29C「同款其他平台也出票」）：四平台列表契约与 /api/goods/list 完全同源
  *  （jd/tb/pdd goodslist + vip goodsquery，D先生 2026-10-08 重申契约），各轨取首条。
  *  单轨失败静默降级（allSettled 隔离），全部失败返回空数组不阻塞主卡。 */
-async function crossPlatformGoods(keyword: string, exclude: string, userId: number): Promise<CrossItem[]> {
+async function crossPlatformGoods(keyword: string, exclude: string, userId: number, siteId: string): Promise<CrossItem[]> {
   const kw = cleanKeyword(keyword);
   if (kw.length < 4) return []; // 过短词全平台泛搜无意义，宁缺勿滥
-  const cfg = await resolveHjkConfig(undefined);
+  const cfg = await resolveHjkConfigBySiteId(siteId);
   const selfRate = await userSelfRate(userId);
   const platforms = (['jd', 'tb', 'pdd', 'vip'] as const).filter((p) => p !== exclude);
   const results = await Promise.allSettled(platforms.map(async (p): Promise<CrossItem | null> => {
@@ -337,13 +339,13 @@ interface GoodsCardItem {
 }
 
 async function toolSearchGoods(
-  res: Response, args: Record<string, unknown>, userId: number,
+  res: Response, args: Record<string, unknown>, userId: number, siteId: string,
 ): Promise<{ kind: string; content: string; meta: unknown }> {
   const platform = String(args.platform ?? 'jd');
   const keyword = String(args.keyword ?? '').trim().slice(0, 40);
   if (!['jd', 'tb', 'pdd', 'vip'].includes(platform) || !keyword) throw new Error('BAD_TOOL_ARGS');
 
-  const cfg = await resolveHjkConfig(undefined);
+  const cfg = await resolveHjkConfigBySiteId(siteId);
   const params = buildListParams(platform, { keyword, page: '1', size: '3' });
   // vip 有词搜索走 goodsquery（goods.ts 同款修正：goodslist 带 keyword 反而恒空）
   const endpoint = platform === 'vip' ? 'vip/goodsquery' : `${platform}/goodslist`;
@@ -375,7 +377,7 @@ async function toolSearchGoods(
   // 搜索流态同样一次性出多平台（2026-10-08 D先生 钦定方案 A）：主卡后追加其余三平台
   //   同款各 1 条（复用 29C crossPlatformGoods，kw<4 字自动跳过）；单轨失败静默降级。
   //   历史单行模型 → cross 嵌入 meta（parse_card 同款做法），前端回放时补挂 cross_list
-  const cross = keyword.length >= 4 ? await crossPlatformGoods(keyword, platform, userId) : [];
+  const cross = keyword.length >= 4 ? await crossPlatformGoods(keyword, platform, userId, siteId) : [];
   if (cross.length) sseWrite(res, 'card', { kind: 'cross_list', items: cross });
   // meta 存 items 全量（真标题/图/价）→ 历史回看原样重建卡片（旧版只存 refs id，
   //   历史卡被重建成「搜…命中 3 件」假标题 + 空图，D先生 2026-10-08 实锤）；refs 保留兼容旧端
@@ -444,7 +446,7 @@ function convertFailTip(e: unknown): string {
 }
 
 async function toolConvertLink(
-  res: Response, args: Record<string, unknown>, userId: number, parsed: ParsedRef | null,
+  res: Response, args: Record<string, unknown>, userId: number, parsed: ParsedRef | null, siteId: string,
 ): Promise<{ kind: string; content: string; meta: unknown }> {
   const ref = parsed ?? parseRef(String(args.ref ?? ''));
   if (!ref) {
@@ -454,7 +456,7 @@ async function toolConvertLink(
     sseWrite(res, 'text_delta', { t: tip });
     return { kind: 'text', content: tip, meta: { layer: 'L2-unparsed' } };
   }
-  const { link, rebate, goods } = await doConvert(ref, userId);
+  const { link, rebate, goods } = await doConvert(ref, userId, siteId);
   // link 内嵌 platform（万能通道 pf 响应驱动；前端 pcardMeta/platformEn 吃
   //   m.link.platform → 真机双 UNDEFINED，D先生 2026-10-08 实锤）
   const linkFull = { ...link, rebate };
@@ -470,7 +472,7 @@ async function toolConvertLink(
   const kw = cleanKeyword(kwSrc);
   let cross: CrossItem[] = [];
   if (allowCross && kw.length >= 4) {
-    cross = await crossPlatformGoods(kw, link.platform, userId);
+    cross = await crossPlatformGoods(kw, link.platform, userId, siteId);
     if (cross.length) sseWrite(res, 'card', { kind: 'cross_list', items: cross });
   }
   return {
@@ -501,7 +503,7 @@ chatRouter.get('/boot', requireUser, async (req: Request, res: Response) => {
   let rightsCnt = 0;
   try {
     const { fetchFasttype } = await import('../lib/haojingke.js');
-    const ft = await fetchFasttype((await resolveHjkConfig(undefined)).apikey);
+    const ft = await fetchFasttype((await resolveHjkConfigBySiteId(siteId)).apikey);
     if (ft.ok) rightsCnt = ft.data.length;
   } catch { /* 权益目录不可用不阻塞 boot */ }
   // 站点名（顶部胶囊显示源；boot 此前不返回导致胶囊空白，2026-10-07 修复）
@@ -584,7 +586,7 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
       if (parsed) {
         parsed.hint = parsed.hint ?? message; // 29C 跨平台搜词兜底源（原话含「」商品名段）
         try {
-          result = await toolConvertLink(res, {}, userId, parsed);
+          result = await toolConvertLink(res, {}, userId, parsed, siteId);
         } catch (e) {
           // 弱信号（口令结构无 URL）：转链失败不吞消息 → 置空回落 L1.5/L2 保住搜索意图
           //   （如「淘宝上的 iPhone15Pro 值得买吗」被疑似后试转 103，仍应正常走搜索）；
@@ -640,7 +642,7 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
         for (const intent of intents) {
           try {
             if (intent.tool === 'search_goods') {
-              results.push(await toolSearchGoods(res, intent.args, userId));
+              results.push(await toolSearchGoods(res, intent.args, userId, siteId));
             } else if (intent.tool === 'goto_service') {
               try {
                 results.push(await toolGotoService(res, intent.args, siteId));
@@ -651,7 +653,7 @@ chatRouter.post('/sse', requireUser, async (req: Request, res: Response) => {
               }
             } else if (intent.tool === 'convert_link') {
               try {
-                results.push(await toolConvertLink(res, intent.args, userId, null));
+                results.push(await toolConvertLink(res, intent.args, userId, null, siteId));
               } catch (e) {
                 const tip = convertFailTip(e);
                 sseWrite(res, 'text_delta', { t: tip });
