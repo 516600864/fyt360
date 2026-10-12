@@ -222,7 +222,9 @@ export default {
         tmplIds: [this.pushTmpl],
         success: (res) => {
           if (res && res[this.pushTmpl] === 'accept') {
-            request('/api/me/checkin/subscribe', { method: 'POST', body: { state: 'accept' } }).catch(() => {});
+            // data=（非 body=）：request 封装只认 options.data，传 body 请求体恒空 → 服务端 state 缺失走 reject 分支
+            //   → quota 永不涨（决策#32 上报静默失效，2026-10-12 D先生 实测 quota=0 实锤）
+            request('/api/me/checkin/subscribe', { method: 'POST', data: { state: 'accept' } }).catch(() => {});
           }
         },
         fail: () => {}, // 用户关闭弹窗/环境不支持 → 静默

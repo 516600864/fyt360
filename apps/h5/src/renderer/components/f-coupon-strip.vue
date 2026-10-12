@@ -48,7 +48,8 @@ export default {
         uni.showToast({ title: d.already ? '已在券包中' : '领取成功', icon: 'success' });
         setTimeout(() => {
           uni.navigateTo({
-            url: '/pages/rights/coupons',
+            // ⛔ 分包铁则：rights 已迁 pkg-rights（旧主包路径不存在 → fail 弹「打开券包失败」）
+            url: '/pkg-rights/pages/rights/coupons',
             fail: () => uni.showToast({ title: '打开券包失败', icon: 'none' }),
           });
         }, 700);

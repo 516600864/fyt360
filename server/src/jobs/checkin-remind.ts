@@ -26,13 +26,17 @@ async function getAccessToken(siteId: string, siteCode: string): Promise<string>
   return j.access_token;
 }
 
-/** 地图值递归替换 {n} 占位符（n = 今日可得元宝） */
-function fillMap(map: Record<string, unknown>, n: number): Record<string, unknown> {
+/** 地图值递归替换占位符（n=今日可得元宝，s=连签天数，t=发送时刻 HH:mm 北京时间） */
+function fillMap(
+  map: Record<string, unknown>,
+  ctx: { n: number; s: number; t: string },
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(map)) {
-    if (v && typeof v === 'object') out[k] = fillMap(v as Record<string, unknown>, n);
-    else if (typeof v === 'string') out[k] = v.replaceAll('{n}', String(n));
-    else out[k] = v;
+    if (v && typeof v === 'object') out[k] = fillMap(v as Record<string, unknown>, ctx);
+    else if (typeof v === 'string') {
+      out[k] = v.replaceAll('{n}', String(ctx.n)).replaceAll('{s}', String(ctx.s)).replaceAll('{t}', ctx.t);
+    } else out[k] = v;
   }
   return out;
 }
@@ -49,8 +53,10 @@ export interface RemindResult {
   sites: Array<{ site: string; skipped?: string; sent?: number; cleared?: number; failed?: number }>;
 }
 
-/** 全站点签到提醒（单次全量；由定时触发器每日 09:00 调起，亦可 admin 手动触发） */
-export async function runCheckinRemind(): Promise<RemindResult> {
+/** 签到订阅消息提醒（决策#32）。
+ *  siteCode 缺省=全站点（SCF 定时器每日 09:00 用）；传入=只跑该站（admin 手动触发用，2026-10-12：
+ *  此前手动触发恒全站遍历+无 assertSiteAccess，站点管理员可触发全站推送=越权+会话站点被无视）。 */
+export async function runCheckinRemind(siteCode?: string): Promise<RemindResult> {
   const today = todayStr();
   const yesterday = yesterdayStr();
   const out: RemindResult['sites'] = [];
@@ -59,7 +65,8 @@ export async function runCheckinRemind(): Promise<RemindResult> {
     `SELECT s.site_id::text AS site_id, s.code, pc.config, pc.apikey
        FROM site s
        JOIN provider_config pc ON pc.site_id = s.site_id AND pc.provider = 'wechat_mini' AND pc.status = 'active'
-      WHERE s.status = 'active'`
+      WHERE s.status = 'active' AND ($1::text = '' OR s.code = $1::text)`,
+    [siteCode ?? '']
   );
 
   for (const s of sites) {
@@ -87,7 +94,7 @@ export async function runCheckinRemind(): Promise<RemindResult> {
 
       // 有额度且今日未签到的用户（openid 必须有——订阅消息按 openid 发）
       const { rows: users } = await pool.query(
-        `SELECT q.user_id, u.openid, q.quota, c.streak, c.last_date
+        `SELECT q.user_id, u.openid, q.quota, q.site_id::text AS quota_site_id, c.streak, c.last_date
            FROM user_push_quota q
            JOIN "user" u ON u.user_id = q.user_id AND u.openid IS NOT NULL
            LEFT JOIN checkin_record c ON c.site_id = q.site_id AND c.user_id = q.user_id
@@ -99,6 +106,7 @@ export async function runCheckinRemind(): Promise<RemindResult> {
       let sent = 0;
       let cleared = 0;
       let failed = 0;
+      const sendTime = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(11, 16);
       for (const u of users) {
         const streak = Number(u.streak ?? 0);
         const lastDate = u.last_date ? String(u.last_date).slice(0, 10) : '';
@@ -108,7 +116,7 @@ export async function runCheckinRemind(): Promise<RemindResult> {
           touser: String(u.openid),
           template_id: tmpl,
           page: 'pages/index/index',
-          data: fillMap(map, nextN),
+          data: fillMap(map, { n: nextN, s: streak, t: sendTime }),
         };
         try {
           const r = await fetch(`https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=${token}`, {
@@ -119,16 +127,19 @@ export async function runCheckinRemind(): Promise<RemindResult> {
           const j = (await r.json().catch(() => null)) as { errcode?: number; errmsg?: string } | null;
           const code = j?.errcode ?? 0;
           if (code === 0) {
-            // 发送成功 → 消耗一条额度
+            // 发送成功 → 消耗一条额度（PK 站点化 046：按 user+site 精确扣，防多站串扣）
             await pool.query(
               `UPDATE user_push_quota SET quota = quota - 1, updated_at = now()
-                WHERE user_id = $1::bigint AND quota > 0`,
-              [u.user_id]
+                WHERE user_id = $1::bigint AND site_id = $2::uuid AND quota > 0`,
+              [u.user_id, u.quota_site_id]
             );
             sent += 1;
           } else if (code === 43101) {
-            // 用户未订阅/额度已耗尽 → 清零，避免反复空查
-            await pool.query(`UPDATE user_push_quota SET quota = 0, updated_at = now() WHERE user_id = $1::bigint`, [u.user_id]);
+            // 用户未订阅/额度已耗尽 → 清零，避免反复空查（同 046：按 user+site 精确清）
+            await pool.query(
+              `UPDATE user_push_quota SET quota = 0, updated_at = now() WHERE user_id = $1::bigint AND site_id = $2::uuid`,
+              [u.user_id, u.quota_site_id]
+            );
             cleared += 1;
           } else {
             failed += 1;

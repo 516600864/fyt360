@@ -77,8 +77,9 @@ export function handleAction(a) {
         if (d.mode === 'plugin' && d.path) {
           // 插件分包化（2026-10-09 主包瘦身）：ordering/tg 声明在 pkg-mayi，
           // 分包外页面不能直接跳分包内插件页 → 统一经 pkg-mayi 中转页（官方允许路径）
+          // name=品牌全名（中转页贴纸展示；2026-10-12 品牌化转场）
           uni.navigateTo({
-            url: '/pkg-mayi/pages/plugin-jump?path=' + encodeURIComponent(d.path),
+            url: '/pkg-mayi/pages/plugin-jump?path=' + encodeURIComponent(d.path) + '&name=' + encodeURIComponent(d.name || 'FYT360'),
             fail: () => uni.showToast({ title: '插件页打开失败，请更新小程序版本', icon: 'none' }),
           });
           return;

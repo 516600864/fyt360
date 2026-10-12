@@ -109,7 +109,7 @@
     {
       "root": "pkg-mayi",
       "pages": [
-        { "path": "pages/plugin-jump", "style": { "navigationBarTitleText": "加载中", "navigationBarBackgroundColor": "#FFF6E9", "navigationBarTextStyle": "black" } }
+        { "path": "pages/plugin-jump", "style": { "navigationBarTitleText": "正在打开", "navigationBarBackgroundColor": "#FFF6E9", "navigationBarTextStyle": "black" } }
       ],
       "plugins": {
         "mayi-ordering": { "version": "latest", "provider": "wx869ff9f322c1d2f0" },

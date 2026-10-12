@@ -169,7 +169,7 @@
  * 返利数字 = 服务端按「上游佣金 × 用户等级自购比例」算好的 user_rebate，无则不渲染该行（绝不编数）。
  */
 import { API_BASE, request, getToken } from '../../utils/request.js';
-import { onGoodsTap, goUnion, jumpConverted } from '../../core/link';
+import { goUnion, jumpConverted } from '../../core/link';
 
 export default {
   /** embedded：壳页内嵌形态（tabbar builtin/chat，ShellView 挂载）——根容器给悬浮毛玻璃
@@ -488,8 +488,10 @@ export default {
         return;
       }
       if (d.mode === 'h5url') {
-        // 联盟 H5 / 淘口令类 → 走 core/link 统一转链协议
-        onGoodsTap({ platform: 'tb', id: String(d.actid ?? ''), url: d.url, tkl: d.tkl, title: d.name ?? '' });
+        // 联盟 H5 / 淘口令类 → 现成 tkl 直跳口令页（goTbCard 无 tkl 自动降级复制）。
+        // 修复 2026-10-12：旧 onGoodsTap({id: d.actid}) 恒空被静默 return——brand-launch
+        // h5url 响应无 actid 字段，actid≠商品 id 进商详也查不到（与 search-result 同款坑）
+        this.goTbCard({ tkl: d.tkl, url: d.url }, { title: d.name ?? '' });
         return;
       }
       if (!d.path) {
@@ -501,7 +503,12 @@ export default {
         return;
       }
       if (d.mode === 'plugin') {
-        uni.navigateTo({ url: d.path, fail: () => uni.showToast({ title: '插件页打开失败', icon: 'none' }) });
+        // 插件分包化（2026-10-10 铁律）：ordering/tg 声明在 pkg-mayi 分包，分包外页面
+        // 不能直跳 plugin:// → 必须经中转页（此前 chat 页漏网直跳必 fail，2026-10-12 补）
+        uni.navigateTo({
+          url: '/pkg-mayi/pages/plugin-jump?path=' + encodeURIComponent(d.path) + '&name=' + encodeURIComponent(d.name || 'FYT360'),
+          fail: () => uni.showToast({ title: '插件页打开失败', icon: 'none' }),
+        });
         return;
       }
       const sep = d.path.includes('?') ? '&' : '?';

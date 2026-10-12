@@ -209,7 +209,7 @@
  *   ② 「隆重推荐」位整体移除：静态假卡（腾讯 VIP ¥199 / 边看剧边吃火锅），
  *      假价格假优惠且腾讯 VIP 属 CPS 品类不应做种草。相关模板/样式/goCategory 一并清掉。
  */
-import { request } from '@/utils/request';
+import { request, API_BASE } from '@/utils/request';
 import { onGoodsTap } from '@/core/link';
 
 const TYPE_EMOJI = { 视频会员: '🎬', 音频娱乐: '🎧', 音频会员: '🎧', 读书学习: '📚', 餐饮美食: '🍔', 生活服务: '🛠', 外卖出行: '🛵', 网话费: '📱', 话费充值: '📱', 其他: '🎁', 其它会员: '🎁' };
@@ -468,9 +468,11 @@ export default {
         uni.showToast({ title: '该服务暂未配置呼起', icon: 'none' });
         return;
       }
-      // 联盟 H5 / 淘口令类（tb/pdd/jd/vip 转链结果）→ 走 core/link 统一转链协议
+      // 联盟 H5 / 淘口令类 → tkl 直跳口令页（与 chat.goTbCard / goUnion tb 分支同构）。
+      // 修复 2026-10-12：旧 onGoodsTap({id: d.actid}) 恒空被静默 return——brand-launch h5url
+      // 响应无 actid 字段，且 actid≠商品 id 进商详也查不到，正确形态=用现成 tkl 直进口令页
       if (d.mode === 'h5url') {
-        onGoodsTap({ platform: 'tb', id: String(d.actid ?? ''), url: d.url, tkl: d.tkl, title: d.name ?? '' });
+        this.launchH5url(d);
         return;
       }
       if (!d.path) {
@@ -485,7 +487,7 @@ export default {
       //（微信规则：分包外页面不能直接跳分包内插件页；pkg-goods 未声明该插件故同走中转）
       if (d.mode === 'plugin') {
         uni.navigateTo({
-          url: '/pkg-mayi/pages/plugin-jump?path=' + encodeURIComponent(d.path),
+          url: '/pkg-mayi/pages/plugin-jump?path=' + encodeURIComponent(d.path) + '&name=' + encodeURIComponent(d.name || 'FYT360'),
           fail: () => uni.showToast({ title: '插件页打开失败', icon: 'none' }),
         });
         return;
@@ -499,6 +501,29 @@ export default {
       } else {
         uni.showToast({ title: '呼起配置未录入', icon: 'none' });
       }
+    },
+    /** h5url 呼起（2026-10-12 修复）：brand-launch act 转链已带真淘口令 tkl（2026-09-30 实测）
+     *  → 直跳 tkl 口令页（决策#21 口径）；无 tkl 的联盟 H5（如 u.ele.me）web-view 域名白名单
+     *  装不下 → 复制链接兜底，诚实不装死 */
+    launchH5url(d) {
+      const tkl = d.tkl || '';
+      if (!tkl) {
+        if (!d.url) { uni.showToast({ title: '该服务暂未配置呼起', icon: 'none' }); return; }
+        uni.setClipboardData({
+          data: d.url,
+          success: () => uni.showToast({ title: '链接已复制，请在浏览器打开', icon: 'none' }),
+        });
+        return;
+      }
+      const tklQs =
+        'tkl=' + encodeURIComponent(tkl) +
+        '&title=' + encodeURIComponent(d.name || 'FYT360 精选好物') +
+        '&price=' + encodeURIComponent('') +
+        '&rebate=' + encodeURIComponent('');
+      uni.navigateTo({
+        url: '/pages/tkl/index?url=' + encodeURIComponent(API_BASE + '/tkl.html?' + tklQs),
+        fail: () => uni.setClipboardData({ data: tkl, success: () => uni.showToast({ title: '淘口令已复制，打开淘宝粘贴', icon: 'none' }) }),
+      });
     },
     /** 图片加载失败 → 就地换首字占位（D先生 2026-10-03）。
      *  京东/淘宝/拼多多图域均不在小程序 downloadFile 白名单，<image> 必然 403；

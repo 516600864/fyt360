@@ -136,14 +136,14 @@ checkinRouter.post('/subscribe', async (req: Request, res: Response, next: NextF
       // reject/异常态：诚实落库不涨额度（updated_at 记录最近授权交互时间）
       await pool.query(
         `INSERT INTO user_push_quota (user_id, site_id, quota) VALUES ($1::bigint, $2::uuid, 0)
-          ON CONFLICT (user_id) DO UPDATE SET updated_at = now()`,
+          ON CONFLICT (user_id, site_id) DO UPDATE SET updated_at = now()`,
         [userId, siteId]
       );
       return res.json({ ok: true, data: { accepted: false } });
     }
     const { rows } = await pool.query(
       `INSERT INTO user_push_quota (user_id, site_id, quota) VALUES ($1::bigint, $2::uuid, 1)
-        ON CONFLICT (user_id) DO UPDATE SET quota = user_push_quota.quota + 1, updated_at = now()
+        ON CONFLICT (user_id, site_id) DO UPDATE SET quota = user_push_quota.quota + 1, updated_at = now()
         RETURNING quota`,
       [userId, siteId]
     );

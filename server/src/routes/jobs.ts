@@ -91,9 +91,15 @@ jobsRouter.post('/checkin-remind/cron', async (req: Request, res: Response, next
   }
 });
 
-jobsRouter.post('/checkin-remind', requireAdmin, async (_req: Request, res: Response, next: NextFunction) => {
+// 手动触发（admin）：只跑会话站点（X-Fyt-Site 全局注入，push-config 同口径），禁全站遍历
+jobsRouter.post('/checkin-remind', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const stats = await runCheckinRemind();
+    const code = String(req.body?.site ?? req.headers['x-fyt-site'] ?? '').trim();
+    if (!code) throw new HttpError(400, '缺少站点上下文（X-Fyt-Site）', 'NO_SITE');
+    const { rows } = await pool.query(`SELECT site_id FROM site WHERE code = $1 LIMIT 1`, [code]);
+    if (!rows[0]) throw new HttpError(404, 'SITE_NOT_FOUND', '站点不存在');
+    assertSiteAccess(req.admin!, rows[0].site_id);
+    const stats = await runCheckinRemind(code);
     res.json({ ok: true, data: stats });
   } catch (e) {
     next(e);

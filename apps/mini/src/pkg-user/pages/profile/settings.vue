@@ -103,7 +103,58 @@ export default {
       uni.navigateTo({ url: '/pkg-user/pages/profile/login' });
     },
     onNotify() {
-      uni.showToast({ title: '订单订阅消息即将开放', icon: 'none' });
+      // 签到提醒授权收集（决策#32）：与 checkin-popup 同款链路——status 下发 push_tmpl，
+      // requestSubscribeMessage 授权 → accept 上报 quota+1（一次性订阅=授权一次可发一条）。
+      // #ifdef MP-WEIXIN
+      (async () => {
+        let tmpl = '';
+        try {
+          const d = await request('/api/me/checkin/status');
+          tmpl = d.push_tmpl || '';
+        } catch (e) {
+          uni.showToast({ title: '请先登录后设置', icon: 'none' });
+          return;
+        }
+        if (!tmpl) {
+          uni.showToast({ title: '本站未开启签到提醒', icon: 'none' });
+          return;
+        }
+        if (typeof uni.requestSubscribeMessage !== 'function') {
+          uni.showToast({ title: '当前环境不支持订阅消息', icon: 'none' });
+          return;
+        }
+        uni.requestSubscribeMessage({
+          tmplIds: [tmpl],
+          success: (res) => {
+            if (res && res[tmpl] === 'accept') {
+              // data=（非 body=）：request 封装只认 options.data，body 请求体恒空 → 服务端 reject 分支 quota 不涨
+              request('/api/me/checkin/subscribe', { method: 'POST', data: { state: 'accept' } })
+                .then((d) => {
+                  const q = Number(d?.quota ?? 0);
+                  // icon=none：微信 success 态 toast 标题上限 7 汉字，「（余N条）」会被整段截掉（D先生 开发版实测实锤）
+                  uni.showToast({ title: q > 0 ? `已开启签到提醒 · 余${q}条` : '已开启签到提醒', icon: 'none' });
+                })
+                .catch(() => {});
+            } else {
+              uni.showToast({ title: '未开启', icon: 'none' });
+            }
+          },
+          fail: () => {
+            // 订阅主开关关闭/此前拒绝并勾选「总是保持」→ 引导去设置页手动开
+            uni.showModal({
+              title: '开启签到提醒',
+              content: '订阅消息权限未开启，请在设置中允许接收订阅消息',
+              confirmText: '去设置',
+              confirmColor: themeTokens().primary || '#e8336d',
+              success: (r) => { if (r.confirm) uni.openSetting({}); },
+            });
+          },
+        });
+      })();
+      // #endif
+      // #ifndef MP-WEIXIN
+      uni.showToast({ title: '仅微信小程序支持订阅消息', icon: 'none' });
+      // #endif
     },
     onClearCache() {
       uni.showModal({
