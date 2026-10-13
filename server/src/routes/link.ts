@@ -9,7 +9,7 @@
 //   vip 响应 data.urlInfoList[]{url, vipWxUrl}；chanTag 单传即可，openId 不传（与 goodslist 相反，无污染问题）
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { hjkCall } from '../lib/haojingke.js';
-import { resolveHjkConfig, resolveProvider } from '../lib/provider.js';
+import { resolveHjkConfig, resolveHjkConfigBySiteId, resolveProvider } from '../lib/provider.js';
 import { HttpError } from '../middleware/errors.js';
 import { optionalUser } from '../middleware/auth.js';
 import { pool } from '../db/client.js';
@@ -162,7 +162,11 @@ async function unionHandler(req: Request, res: Response, next: NextFunction): Pr
     const platform = String(req.params.platform ?? '');
     if (!PLATFORMS.has(platform)) throw new HttpError(404, 'BAD_PLATFORM', `不支持的平台：${platform}`);
 
-    const cfg = await resolveHjkConfig(req.query.site as string | undefined);
+    // ⛔ 凭据跟站点走（铁律，2026-10-13 补漏，chat.ts/goods.ts 同款）：登录态按 JWT siteId
+    //    直查本站蚂蚁 key——旧写法 C 端恒挂 site-a key（佣金归错账户；site-a key 失效即全网炸）。
+    const cfg = req.user?.siteId
+      ? await resolveHjkConfigBySiteId(req.user.siteId)
+      : await resolveHjkConfig(req.query.site as string | undefined);
     const params = buildLinkParams(platform, req.query);
     const uid = req.user ? String(req.user.userId) : '1';
 

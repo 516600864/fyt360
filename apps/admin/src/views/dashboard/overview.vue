@@ -139,7 +139,7 @@
           <div class="donut" :style="{ background: donutCss }">
             <div class="donut-hole">
               <span class="donut-num">¥{{ money(cpsTotal) }}</span>
-              <span class="donut-cap">CPS 佣金</span>
+              <span class="donut-cap">毛收入</span>
             </div>
           </div>
           <div class="legend">
@@ -148,7 +148,7 @@
               <span class="legend-name">{{ c.label }}</span>
               <span class="legend-pct">{{ c.pct }}%</span>
             </div>
-            <p v-if="!sources.length" class="legend-empty">该区间暂无 CPS 佣金</p>
+            <p v-if="!sources.length" class="legend-empty">该区间暂无毛收入</p>
           </div>
         </div>
       </div>

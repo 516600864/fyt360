@@ -48,6 +48,12 @@
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
+        <el-table-column label="支付费率" width="90" align="center">
+          <template #default="{ row }">
+            <span v-if="row.configured">{{ (row.pay_fee_rate * 100).toFixed(2).replace(/\.?0+$/, '') }}%</span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="凭据" width="130">
           <template #default="{ row }">
             <span v-if="row.configured" class="cred-chips">
@@ -109,6 +115,10 @@
           <el-input-number v-model="dlg.ratePercent" :min="0" :max="100" :step="0.5" :precision="2" style="width: 160px" />
           <span class="rate-hint">到店团购佣金基数 = 实付金额 × 佣金率</span>
         </el-form-item>
+        <el-form-item label="支付费率%" required>
+          <el-input-number v-model="dlg.feePercent" :min="0" :max="10" :step="0.1" :precision="2" style="width: 160px" />
+          <span class="rate-hint">微信支付手续费 = 有流水的自营实收 × 支付费率（商户号签约费率，通常 0.6%）</span>
+        </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="dlg.form.status" active-value="active" inactive-value="disabled" />
         </el-form-item>
@@ -165,7 +175,7 @@ async function load() {
 
 const dlg = reactive({
   visible: false, editing: false, saving: false,
-  site_id: '', site_name: '', ratePercent: 20,
+  site_id: '', site_name: '', ratePercent: 20, feePercent: 0.6,
   form: { mch_id: '', mch_key: '', serial_no: '', cert: '', status: 'active' },
 });
 
@@ -176,6 +186,7 @@ function onNew() {
   dlg.site_id = first.site_id;
   dlg.site_name = first.site_name;
   dlg.ratePercent = 20;
+  dlg.feePercent = 0.6;
   dlg.form = { mch_id: '', mch_key: '', serial_no: '', cert: '', status: 'active' };
   dlg.visible = true;
 }
@@ -185,6 +196,7 @@ function onEdit(row) {
   dlg.site_id = row.site_id;
   dlg.site_name = row.site_name;
   dlg.ratePercent = row.configured ? Math.round(row.commission_rate * 10000) / 100 : 20;
+  dlg.feePercent = row.configured ? Math.round((row.pay_fee_rate ?? 0.006) * 10000) / 100 : 0.6;
   dlg.form = {
     mch_id: row.mch_id ?? '',
     mch_key: '',
@@ -228,6 +240,7 @@ async function onSave() {
   const body = {
     mch_id: dlg.form.mch_id,
     commission_rate: Math.round(dlg.ratePercent * 100) / 10000,
+    pay_fee_rate: Math.round(dlg.feePercent * 100) / 10000,
     status: dlg.form.status,
   };
   if (dlg.form.mch_key) body.mch_key = dlg.form.mch_key;

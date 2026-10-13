@@ -4,12 +4,24 @@
 // 平台参数差异在此吸收：jd/vip=pageindex/pagesize，pdd=page/page_size，tb=游标 min_id/tb_p（pagesize 仅限 1,2,10,20,50,100）
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { hjkCall, extractList, normalizeGoods } from '../lib/haojingke.js';
-import { resolveHjkConfig } from '../lib/provider.js';
+import { resolveHjkConfig, resolveHjkConfigBySiteId, type HjkProviderConfig } from '../lib/provider.js';
 import { HttpError } from '../middleware/errors.js';
 import { optionalUser } from '../middleware/auth.js';
 import { pool } from '../db/client.js';
 
 export const goodsRouter = Router();
+
+/**
+ * 凭据跟站点走（铁律，2026-10-13 补漏）：登录态按 JWT siteId 直查本站蚂蚁 key；
+ * 匿名/后台场景按 ?site= code 解析；两者皆无才 fallback site-a（provider.ts 老语义）。
+ * ⛔ 旧写法 resolveHjkConfig(req.query.site) 在 C 端恒挂 site-a key —— site-a key
+ *   上游失效后全网商品页全炸（UPSTREAM_BUSINESS「apikey错误！」，2026-10-13 实锤）。
+ */
+async function resolveCfgForReq(req: Request): Promise<HjkProviderConfig> {
+  const siteId = req.user?.siteId;
+  if (siteId) return resolveHjkConfigBySiteId(siteId);
+  return resolveHjkConfig(req.query.site as string | undefined);
+}
 
 const PLATFORMS = new Set(['jd', 'tb', 'pdd', 'vip']);
 
@@ -63,7 +75,7 @@ async function listHandler(req: Request, res: Response, next: NextFunction): Pro
     const platform = String(req.params.platform ?? '');
     if (!PLATFORMS.has(platform)) throw new HttpError(404, 'BAD_PLATFORM', `不支持的平台：${platform}`);
 
-    const cfg = await resolveHjkConfig(req.query.site as string | undefined);
+    const cfg = await resolveCfgForReq(req);
     const params = buildListParams(platform, req.query);
 
     // vip：实测（2026-09-21）必须带 channelType=1 + sourceType=0 才返回 goodsInfoList；
@@ -103,7 +115,7 @@ async function detailHandler(req: Request, res: Response, next: NextFunction): P
     if (!PLATFORMS.has(platform)) throw new HttpError(404, 'BAD_PLATFORM', `不支持的平台：${platform}`);
     if (platform === 'tb') throw new HttpError(404, 'NO_DETAIL_API', '淘宝无商品详情端点，请用列表条目数据渲染');
 
-    const cfg = await resolveHjkConfig(req.query.site as string | undefined);
+    const cfg = await resolveCfgForReq(req);
     const goodsId = String(req.query.goods_id ?? '').trim();
     if (!goodsId) throw new HttpError(400, 'BAD_PARAM', '缺少 goods_id');
 
@@ -190,5 +202,5 @@ goodsRouter.get('/goods/self/list', optionalUser, async (req: Request, res: Resp
   }
 });
 
-goodsRouter.get('/goods/:platform/list', listHandler);
-goodsRouter.get('/goods/:platform/detail', detailHandler);
+goodsRouter.get('/goods/:platform/list', optionalUser, listHandler);
+goodsRouter.get('/goods/:platform/detail', optionalUser, detailHandler);

@@ -7,8 +7,10 @@
 //
 //   毛收入 = CPS佣金(含直充返佣) + 到店团购毛利
 //     · CPS佣金 = SUM(commission) WHERE provider <> 'self'（直充=recharge 是 CPS 的一种形态，不单列）
-//     · 团购毛利 = self收款 − self成本快照 − self佣金 − self手续费
+//     · 团购毛利 = self收款 − self成本快照 − self佣金（平台抽成，settleRebateOnVerify 落 order.commission）
 //   现金支出 = 分销佣金 + 用户提现 + 支付手续费 + 自营退款
+//     · 支付手续费 = 有微信流水(payment_no 非空)的 self 实收 × site_payment.pay_fee_rate（独立字段，默认 0.6%）
+//     · ⛔ 手续费**只在现金支出扣一次**（2026-10-13 修双扣：旧版团购毛利里也减过一次，净收益少算一倍手续费）
 //     · 元宝发放**不在此列**（元宝非现金，铁律；只作负债率参考）
 //
 // ⛔⛔ 退款口径（2026-10-04 D先生拍板，修正上一版"按订单金额计支出"的错账）：
@@ -157,25 +159,32 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
     const rev = revRows[0] ?? {};
 
     // ── 2. 支付手续费：仅自营有真实微信支付流水（CPS 钱不经我手）。
-    //       费率取站点配置 site_payment.commission_rate，**不写死 0.6%**。
-    //       ⛔ 手续费只在区间内有实收时才查；跨多站点时用 IN 展开，不要塞进 ARRAY[]::text[]
-    //          （$n 展开进数组字面量会触发 uuid = text 类型错误）。
+    //       费率 = site_payment.pay_fee_rate（独立字段，默认 0.6%；语义与 commission_rate=团购抽成 无关）。
+    //       ⛔ 当前/上一区间实收一次取回（旧版 prev 手续费错用当前区间值，环比口径歪）。
+    //       ⛔ 跨多站点时用 IN 展开，不要塞进 ARRAY[]::text[]（$n 展开进数组字面量会触发 uuid = text 类型错误）。
     const { rows: feeRows } = await pool.query(
-      `SELECT COALESCE(sp.commission_rate, 0)::float AS rate,
+      `SELECT COALESCE(sp.pay_fee_rate, 0.006)::float AS rate,
               COALESCE((
                 SELECT SUM(o2.pay_price) FROM "order" o2
                  WHERE o2.site_id::text IN (${ph}) AND o2.provider = 'self'
                    AND o2.payment_no IS NOT NULL AND o2.payment_no <> ''
                    AND o2.paid_at >= ${F} AND o2.paid_at < ${T}
-              ), 0)::float AS self_paid_gmv
+              ), 0)::float AS self_paid_gmv,
+              COALESCE((
+                SELECT SUM(o2.pay_price) FROM "order" o2
+                 WHERE o2.site_id::text IN (${ph}) AND o2.provider = 'self'
+                   AND o2.payment_no IS NOT NULL AND o2.payment_no <> ''
+                   AND o2.paid_at >= ${PF} AND o2.paid_at < ${PT}
+              ), 0)::float AS self_paid_gmv_prev
          FROM (SELECT 1) x
          LEFT JOIN site_payment sp ON sp.site_id IN (SELECT site_id FROM site WHERE site_id::text IN (${ph}))
-        GROUP BY sp.commission_rate`,
-      pCur,
+        GROUP BY sp.pay_fee_rate`,
+      pCurPrev,
     );
-    const feeRate = Number(feeRows[0]?.rate ?? 0) || 0;
+    const feeRate = Number(feeRows[0]?.rate ?? 0) || 0.006;
     const selfPaidGmv = num(feeRows[0]?.self_paid_gmv);
     const selfFeeCur = selfPaidGmv * feeRate;
+    const selfFeePrev = num(feeRows[0]?.self_paid_gmv_prev) * feeRate;
 
     // ── 3. 现金支出：分销佣金（commission_flow 三级明细）+ 用户提现（withdraw 已打款）──
     const { rows: expRows } = await pool.query(
@@ -239,7 +248,7 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
     const k = kpiRows[0] ?? {};
 
     // ── 5. 三线趋势：毛收入 / 现金支出 / 净收益（逐日补零）──
-    //    手续费按站点级费率对自营收款按日摊回（费率恒定，摊回口径与总额一致）
+    //    手续费只在支出线扣一次（与总额口径一致，防双扣）；费率恒定按日摊
     //    ⛔ generate_series 的两个端点必须显式 ::date；否则 PG 在 CTE 里推断不出类型 → 42P18
     //    ⛔ 无 refund 维度：CPS 退款不进支出（决策 #38 补充口径），趋势与总额必须同口径
     const { rows: trendRows } = await pool.query(
@@ -269,12 +278,14 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
     const trend = trendRows.map((r) => {
       const selfIn = num(r.self_in);
       const fee = selfIn * feeRate;
-      const gross = num(r.cps) + selfIn - num(r.self_cost) - num(r.self_comm) - fee;
+      const gross = num(r.cps) + selfIn - num(r.self_cost) - num(r.self_comm);
       const out = num(r.self_refund) + fee;
       return { label: String(r.label), gross: round2(gross), expense: round2(out), net: round2(gross - out) };
     });
 
-    // ── 6. 毛收入来源占比（按业务线，只统计 CPS 佣金部分）──
+    // ── 6. 毛收入来源占比（方案 A，2026-10-13 D先生 钦定）：CPS 各类目 + 到店团购毛利，
+    //    饼图总额 = 毛收入合计（旧版只算 CPS 佣金一条腿，68.34 vs 3.33 对不上被抓包）。
+    //    ⛔ 团购毛利 ≤ 0 不进饼图（负值画不了扇形）；此边缘场景以账房合计为准。
     const { rows: sourceRows } = await pool.query(
       `SELECT COALESCE(o.biz_category, 'other') AS cat, COALESCE(SUM(o.commission), 0)::float AS gross
          FROM "order" o
@@ -315,18 +326,18 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
     const selfComm = num(rev.self_comm_cur);
     const selfReceipt = num(rev.self_cur);
     const selfCost = num(rev.self_cost_cur);
-    const selfProfit = round2(selfReceipt - selfCost - selfComm - selfFeeCur);
+    const selfProfit = round2(selfReceipt - selfCost - selfComm); // ⛔ 手续费不在此扣（单列现金支出，防双扣）
     const grossIncome = round2(cpsComm + selfProfit);
 
     const prevCps = num(rev.cps_prev);
-    const prevSelfProfit = round2(num(rev.self_prev) - num(rev.self_cost_prev) - num(rev.self_comm_prev) - selfFeeCur);
+    const prevSelfProfit = round2(num(rev.self_prev) - num(rev.self_cost_prev) - num(rev.self_comm_prev));
     const prevGross = round2(prevCps + prevSelfProfit);
 
     const distComm = num(ex.comm_dist);
     const withdrawOut = num(ex.withdraw_out);
     const refundOut = num(rf.refund_cur);
     const cashExpense = round2(distComm + withdrawOut + selfFeeCur + refundOut);
-    const prevCashExpense = round2(num(ex.comm_dist_prev) + num(ex.withdraw_prev) + selfFeeCur + num(rf.refund_prev));
+    const prevCashExpense = round2(num(ex.comm_dist_prev) + num(ex.withdraw_prev) + selfFeePrev + num(rf.refund_prev));
 
     const netIncome = round2(grossIncome - cashExpense);
     const prevNet = round2(prevGross - prevCashExpense);
@@ -359,7 +370,7 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
               key: 'self_goods',
               label: '到店团购毛利',
               amount: selfProfit,
-              desc: '收款 − 成本 − 佣金 − 手续费',
+              desc: '收款 − 成本 − 佣金（手续费单列支出）',
               share: grossIncome > 0 ? round2((selfProfit / grossIncome) * 100) : 0,
               // 成本未快照的自营单 → 毛利口径不完整，UI 必须提示
               ready: num(rev.self_cost_missing) === 0,
@@ -400,7 +411,7 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
               key: 'pay_fee',
               label: '支付手续费',
               amount: round2(selfFeeCur),
-              desc: `微信支付 · 按站点配置费率 ${(feeRate * 100).toFixed(2)}% · 仅自营实收`,
+              desc: `微信支付 · 费率 ${(feeRate * 100).toFixed(2)}% · 仅自营有微信流水的实收`,
               share: cashExpense > 0 ? round2((selfFeeCur / cashExpense) * 100) : 0,
               ready: selfPaidGmv > 0,
             },
@@ -435,11 +446,14 @@ dashboardRouter.get('/summary', requireAdmin, async (req: Request, res: Response
           { key: 'unsettled', label: '待结算', value: Number(k.unsettled_cnt ?? 0), unit: '单', sub: `在途佣金 ¥${round2(num(k.unsettled_comm))}`, delta: null },
         ],
         trend,
-        sources: sourceRows.map((r) => ({
-          key: String(r.cat),
-          label: BIZ_CAT_LABEL[String(r.cat)] ?? String(r.cat),
-          amount: round2(num(r.gross)),
-        })),
+        sources: [
+          ...(selfProfit > 0 ? [{ key: 'self', label: '到店团购', amount: selfProfit }] : []),
+          ...sourceRows.map((r) => ({
+            key: String(r.cat),
+            label: BIZ_CAT_LABEL[String(r.cat)] ?? String(r.cat),
+            amount: round2(num(r.gross)),
+          })),
+        ].sort((a, b) => b.amount - a.amount),
         gmv_reference: {
           total: round2(num(rev.gmv_cps_cur) + selfReceipt),
           delta: pct(num(rev.gmv_cps_cur) + selfReceipt, num(rev.gmv_cps_prev) + num(rev.self_prev)),

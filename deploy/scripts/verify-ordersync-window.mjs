@@ -8,6 +8,10 @@
  *   问3 电影票/点餐/充值三个接口路径与参数名正确（之前 100% 404，从没同步过）
  *   问4 饿了么等长尾平台不能因窗口过窄漏单（D先生点名单 4064786215607488142）
  *
+ * ⛔ 历史快照（2026-10-04 时点结论）。⛔ 2026-10-13 起端点已迁移，本脚本断言整体过时仅存档：
+ *    点餐 diancan/orderlist → open/dcorder（secret 单包裹，老接口响应无 commission/isbalance）；
+ *    影票 movie/orderlist → open/movieorder；充值 recharge/orderlist → open/rerechargeorder。
+ *    新口径实测见 probe-dc-endpoints.mjs / probe-rerecharge.mjs。
  * ⛔ 本脚本断言的是**上游真实响应 + 库内真实数据**，不是「函数返回非空」。
  *    上一轮的教训：E2E 全绿但线上只入 2/1011 行 —— 断言的是算法，没断言数据。
  */

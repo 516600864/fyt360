@@ -1,6 +1,6 @@
 // 订单同步与结算（M2.3）：唯一落库面=订单（商品不入库铁律）
 // 拉取（D先生 2026-10-10 归口）：**只走好京客统一联盟 4 类**（v2 网关，v1 联盟接口已退役）：
-//        pforder（平台活动，免签）· diancan/orderlist（点餐，签名·复合包裹）· open/movieorder（影票，签名·secret单包裹）· open/rerechargeorder（权益充值，签名·secret单包裹+https+POST，响应带 commission/isbalance）
+//        pforder（平台活动，免签）· open/dcorder（点餐，签名·secret单包裹，2026-10-13 自 diancan/orderlist 迁移——老接口响应无 commission/isbalance）· open/movieorder（影票，签名·secret单包裹）· open/rerechargeorder（权益充值，签名·secret单包裹+https+POST，响应带 commission/isbalance）
 // 入库：order_sn = `${provider}:${平台单号}:${行键}` 幂等 upsert，三维状态机 only-forward
 // 结算：platform_status='settled' 且 rebate_at IS NULL → 事务内 元宝返还（1元=100元宝，决策#21）+ 佣金三跳分配
 // 冲销：refund_status='refunded' 且已结算且 chargeback_at IS NULL → 扣回元宝/佣金
@@ -361,7 +361,8 @@ const mayiFetcher = (
         //   platformUpdatedAt = 上游最近一次状态更新时间（**窗口游标**，落 platform_updated_at）
         //     字段名各接口不一：pforder=updated_at、diancan/recharge=updatedtime。
         orderTime: toDate(r.createdtime ?? r.ordertime),
-        settledTime: toDate(r.completetime ?? r.finishtime),
+        // settled 态回退取 updatedtime（dc 响应无 completetime/finishtime，2026-10-13 实锤）
+        settledTime: toDate(r.completetime ?? r.finishtime ?? (st === 'settled' ? r.updatedtime : undefined)),
         platformUpdatedAt: toDate(r.updated_at ?? r.updatedtime ?? r.updatedAt),
         bizCategory: bizCategoryOf(bucket),
         // 渠道细分（2026-10-10 D先生：点餐标品牌、平台活动标具体业态）：
@@ -435,30 +436,39 @@ const fetchPf = mayiFetcher(
 );
 
 /**
- * ② diancan/orderlist 点餐：需签名；payprice 单位=元（实测 "11.44"）
+ * ② open/dcorder 点餐（2026-10-13 端点迁移，D先生 报障星巴克单实锤）：
  *
- * ⛔ 路径铁律（2026-10-04 实测纠正，之前的 `open/dcorder` **从来就是 404**）：
- *    官方文档写「dcorder 点餐」，但网关真实路径是 `v2/api/diancan/orderlist`（无 index 段）。
- *    已实测：`open/dcorder` / `index/dcorder` / `dc/orderlist` 全部 404，只有 diancan/orderlist 返回 200。
+ * ⛔ 两条路径又是**两个不同接口**（movie 同剧本；2026-10-04 旧铁律「open/dcorder 恒 404」已过时——
+ *    上游把路径放出来了，但把老接口 diancan/orderlist 的字段阉了：**响应无 commission/isbalance**
+ *    （实测拉同单字段全集实锤）→ dc 单佣金全落 0、看板收入漏算（星巴克 46.95 单：库里 0.00 vs 上游 3.27）。
+ *    正确端点 open/dcorder：带 commission（元）+ isbalance + returnCount 全套；
+ *    签名**只认 secret 单包裹**（apikey 复合包裹 -1 签名错误，open 系统一口径）；
+ *    starttime/endtime 秒级窗口筛选生效（正向命中 total=1 / 反向 total=0 双验证）。
+ * 响应字段：uid（归因）/pf（品牌码）/status/statusstr/payprice（元）/commission（元）/isbalance/returnCount。
  */
 const fetchDc = mayiFetcher(
-  'diancan/orderlist',
+  'open/dcorder',
   'dc',
   (r) => {
     // status：0待付款 1已付款待出餐 2出餐中 3出餐成功 4确认收货(含部分退款) 5出餐失败退款 10关闭
+    // 结算判据= isbalance 结构化字段（recharge/movie 同口径，中文匹配是猜测）：isbalance=1 → settled。
+    //   settled 语义=蚂蚁已结算佣金（触发返元宝+佣金三跳）；出餐成功但 isbalance=0 仍 paid/待结算（诚实）。
+    //   未知态一律 created 保守（防 movie「待付款掉兜底」同款坑）。
     const s = num(r.status);
     const statusStr = String(r.statusstr ?? '');
     return {
       st: s === 10 || s === 5 || /关闭|退款|失败/.test(statusStr)
         ? 'closed'
-        : s >= 1
-          ? 'paid'
-          : 'created',
+        : num(r.isbalance) === 1
+          ? 'settled'
+          : s >= 1 && s <= 4
+            ? 'paid'
+            : 'created',
       refunded: s === 5 || /退款/.test(statusStr) || num(r.returnprice ?? 0) > 0,
     };
   },
   {
-    signed: true, rechargeStyle: true, moneyUnit: 1,
+    signed: true, rechargeStyle: true, signStyle: 'secret', moneyUnit: 1,
     // 品牌细分（2026-10-10 D先生）：响应 pf 字段 → 品牌名（nx 奈雪/bsk 必胜客/mdl 麦当劳/
     // xbk 星巴克/kdj 肯德基/rx 瑞幸/kd 库迪/tst 塔斯汀），未知码回落「点餐」
     chanOf: (r) => DC_BRAND[String(r.pf ?? '')],

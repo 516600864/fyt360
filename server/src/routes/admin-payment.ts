@@ -39,6 +39,7 @@ paymentRouter.get('/overview', requireAdmin, async (req: Request, res: Response,
     const { rows } = await pool.query(
       `SELECT s.site_id::text AS site_id, s.code AS site_code, s.name AS site_name, s.appid,
               p.mch_id, p.serial_no, p.mch_key, p.cert, p.commission_rate::float AS rate,
+              p.pay_fee_rate::float AS pay_fee_rate,
               p.status, p.created_at
          FROM site s LEFT JOIN site_payment p ON p.site_id = s.site_id
         WHERE s.site_id::uuid = ANY($1::uuid[])
@@ -57,6 +58,7 @@ paymentRouter.get('/overview', requireAdmin, async (req: Request, res: Response,
       has_key: !!r.mch_key,
       has_cert: !!r.cert,
       commission_rate: r.rate ?? null,
+      pay_fee_rate: r.pay_fee_rate ?? 0.006,
       status: r.status ?? null,
       created_at: r.created_at ?? null,
     }));
@@ -83,7 +85,9 @@ paymentRouter.put('/:siteId', requireAdmin, async (req: Request, res: Response, 
     const siteId = String(req.params.siteId);
     assertSiteAccess(req.admin!, siteId);
     const { rows: exRows } = await pool.query(
-      `SELECT site_id::text AS site_id, mch_id, mch_key, serial_no, cert, status FROM site_payment WHERE site_id = $1::uuid LIMIT 1`,
+      `SELECT site_id::text AS site_id, mch_id, mch_key, serial_no, cert, status,
+              commission_rate::float AS commission_rate, pay_fee_rate::float AS pay_fee_rate
+         FROM site_payment WHERE site_id = $1::uuid LIMIT 1`,
       [siteId],
     );
     const ex = exRows[0];
@@ -103,6 +107,11 @@ paymentRouter.put('/:siteId', requireAdmin, async (req: Request, res: Response, 
     if (rate !== undefined && (!Number.isFinite(rate) || rate < 0 || rate > 1)) {
       throw new HttpError(400, '佣金率须在 0~1 之间', 'BAD_RATE');
     }
+    // pay_fee_rate = 微信支付手续费费率（独立字段，默认 0.6%；语义与团购抽成 commission_rate 无关，2026-10-13 方案 A）
+    const feeRate = b.pay_fee_rate === undefined ? undefined : Number(b.pay_fee_rate);
+    if (feeRate !== undefined && (!Number.isFinite(feeRate) || feeRate < 0 || feeRate > 0.1)) {
+      throw new HttpError(400, '支付费率须在 0~10% 之间', 'BAD_FEE_RATE');
+    }
 
     const merged = {
       mch_id: String(b.mch_id ?? ex?.mch_id ?? ''),
@@ -115,18 +124,24 @@ paymentRouter.put('/:siteId', requireAdmin, async (req: Request, res: Response, 
 
     if (!ex) {
       await pool.query(
-        `INSERT INTO site_payment (site_id, mch_id, mch_key, serial_no, cert, commission_rate, status)
-         VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::numeric, $7::text)`,
-        [siteId, merged.mch_id, merged.mch_key, merged.serial_no, merged.cert, rate ?? 0.2, String(b.status ?? 'active')],
+        `INSERT INTO site_payment (site_id, mch_id, mch_key, serial_no, cert, commission_rate, pay_fee_rate, status)
+         VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::numeric, $7::numeric, $8::text)`,
+        [siteId, merged.mch_id, merged.mch_key, merged.serial_no, merged.cert, rate ?? 0.2, feeRate ?? 0.006, String(b.status ?? 'active')],
       );
     } else {
       const status = ['active', 'disabled'].includes(String(b.status)) ? String(b.status) : ex.status;
+      // ⛔ 未传的费率字段沿用原值（旧版 commission_rate 未传时硬写 0.2，属 silent 覆盖，一并修掉）
       await pool.query(
         `UPDATE site_payment
             SET mch_id = $1::text, mch_key = $2::text, serial_no = $3::text, cert = $4::text,
-                commission_rate = $5::numeric, status = $6::text
-          WHERE site_id = $7::uuid`,
-        [merged.mch_id, merged.mch_key, merged.serial_no, merged.cert, rate ?? 0.2, status, siteId],
+                commission_rate = $5::numeric, pay_fee_rate = $6::numeric, status = $7::text
+          WHERE site_id = $8::uuid`,
+        [
+          merged.mch_id, merged.mch_key, merged.serial_no, merged.cert,
+          rate ?? Number(ex.commission_rate ?? 0.2),
+          feeRate ?? Number(ex.pay_fee_rate ?? 0.006),
+          status, siteId,
+        ],
       );
     }
     await writeAudit(req, { action: ex ? 'payment.update' : 'payment.create', target_type: 'payment', target_id: merged.mch_id, site_id: siteId });
